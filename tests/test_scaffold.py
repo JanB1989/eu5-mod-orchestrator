@@ -34,6 +34,8 @@ def test_init_project_creates_reusable_workspace(tmp_path: Path) -> None:
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert 'eu5-mod-orchestrator = { path = "../eu5-mod-orchestrator", editable = true }' in pyproject
     assert 'eu5gameparser = { path = "../eu5-game-parser", editable = true }' in pyproject
+    assert "prosper-or-perish-labeling-pipeline" not in pyproject
+    assert "ProsperOrPerishLabelingPipeline" not in pyproject
     assert "package = false" in pyproject
 
 

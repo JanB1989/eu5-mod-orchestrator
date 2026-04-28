@@ -15,7 +15,7 @@ The scaffold creates a project TOML, load-order TOML, scripts, `mod/`, `blueprin
 `artifacts/data`, `graphs`, and README files. It refuses non-empty target directories unless
 `--force` is passed.
 Generated workspaces expect sibling clones named `eu5-game-parser`, `eu5-mod-orchestrator`,
-`eu5-building-pipeline`, and `ProsperOrPerishLabelingPipeline`.
+and `eu5-building-pipeline`.
 
 ## Core Commands
 

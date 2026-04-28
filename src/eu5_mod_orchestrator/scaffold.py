@@ -141,7 +141,6 @@ dependencies = [
     "eu5-building-pipeline",
     "eu5-mod-orchestrator",
     "eu5gameparser",
-    "prosper-or-perish-labeling-pipeline",
 ]
 
 [dependency-groups]
@@ -156,7 +155,6 @@ package = false
 eu5-building-pipeline = {{ path = "../eu5-building-pipeline", editable = true }}
 eu5-mod-orchestrator = {{ path = "../eu5-mod-orchestrator", editable = true }}
 eu5gameparser = {{ path = "../eu5-game-parser", editable = true }}
-prosper-or-perish-labeling-pipeline = {{ path = "../ProsperOrPerishLabelingPipeline", editable = true }}
 """.lstrip()
 
 
@@ -195,7 +193,7 @@ uv run eu5-orchestrator inspect --project {config_name}
 ```
 
 This workspace expects sibling clones of `eu5-game-parser`, `eu5-mod-orchestrator`,
-`eu5-building-pipeline`, and `ProsperOrPerishLabelingPipeline` beside this directory.
+and `eu5-building-pipeline` beside this directory.
 
 Edit the generated load-order TOML so `vanilla_root` points at your EU5 install and the mod
 entry points at your local mod copy under `mod/`.

@@ -19,13 +19,13 @@ generated_blueprints = "blueprints/generated"
 
 [parser]
 profile = "foundations"
-load_order = "../Eu5GameParser/eu5_load_order.toml"
+load_order = "../eu5-game-parser/eu5_load_order.toml"
 
 [building_outputs]
 building_types = "in_game/common/building_types/zz_foundation_{tag}.txt"
 
 [dependencies]
-parser = "../Eu5GameParser"
+parser = "../eu5-game-parser"
 """.strip(),
         encoding="utf-8",
     )
@@ -42,7 +42,7 @@ parser = "../Eu5GameParser"
     )
     assert config.building_outputs.production_methods == "in_game/common/production_methods/{tag}.txt"
     assert config.building_outputs.icons == "in_game/gfx/interface/icons/buildings"
-    assert config.dependencies["parser"] == tmp_path.parent / "Eu5GameParser"
+    assert config.dependencies["parser"] == tmp_path.parent / "eu5-game-parser"
     assert config.data_artifact_dir == tmp_path / "artifacts" / "data"
     assert config.building_artifact_dir == tmp_path / "artifacts" / "data" / "buildings"
     assert config.savegame_artifact_dir == tmp_path / "artifacts" / "data" / "savegame"

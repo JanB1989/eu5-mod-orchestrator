@@ -26,4 +26,4 @@ dev = [
 testpaths = ["tests"]
 
 [tool.uv.sources]
-eu5-building-pipeline = { path = "../ProsperOrPerishBuildingPipeline", editable = true }
+eu5-building-pipeline = { path = "../eu5-building-pipeline", editable = true }

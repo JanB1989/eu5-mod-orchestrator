@@ -35,7 +35,7 @@ wheels = [
 [[package]]
 name = "eu5-building-pipeline"
 version = "0.1.0"
-source = { editable = "../ProsperOrPerishBuildingPipeline" }
+source = { editable = "../eu5-building-pipeline" }
 dependencies = [
     { name = "pillow" },
     { name = "pyyaml" },
@@ -73,7 +73,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "eu5-building-pipeline", editable = "../ProsperOrPerishBuildingPipeline" },
+    { name = "eu5-building-pipeline", editable = "../eu5-building-pipeline" },
     { name = "pytest", specifier = ">=9.0.3" },
 ]
 

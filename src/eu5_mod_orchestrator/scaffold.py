@@ -153,9 +153,9 @@ dev = [
 package = false
 
 [tool.uv.sources]
-eu5-building-pipeline = {{ path = "../ProsperOrPerishBuildingPipeline", editable = true }}
-eu5-mod-orchestrator = {{ path = "../Eu5ModOrchestrator", editable = true }}
-eu5gameparser = {{ path = "../Eu5GameParser", editable = true }}
+eu5-building-pipeline = {{ path = "../eu5-building-pipeline", editable = true }}
+eu5-mod-orchestrator = {{ path = "../eu5-mod-orchestrator", editable = true }}
+eu5gameparser = {{ path = "../eu5-game-parser", editable = true }}
 prosper-or-perish-labeling-pipeline = {{ path = "../ProsperOrPerishLabelingPipeline", editable = true }}
 """.lstrip()
 
@@ -194,8 +194,8 @@ uv sync --dev
 uv run eu5-orchestrator inspect --project {config_name}
 ```
 
-This workspace expects sibling clones of `Eu5GameParser`, `Eu5ModOrchestrator`,
-`ProsperOrPerishBuildingPipeline`, and `ProsperOrPerishLabelingPipeline` beside this directory.
+This workspace expects sibling clones of `eu5-game-parser`, `eu5-mod-orchestrator`,
+`eu5-building-pipeline`, and `ProsperOrPerishLabelingPipeline` beside this directory.
 
 Edit the generated load-order TOML so `vanilla_root` points at your EU5 install and the mod
 entry points at your local mod copy under `mod/`.

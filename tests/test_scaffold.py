@@ -32,7 +32,8 @@ def test_init_project_creates_reusable_workspace(tmp_path: Path) -> None:
     assert "graphs/" in (target / ".gitignore").read_text(encoding="utf-8")
     assert "savegame" in (target / "README.md").read_text(encoding="utf-8")
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'eu5-mod-orchestrator = { path = "../Eu5ModOrchestrator", editable = true }' in pyproject
+    assert 'eu5-mod-orchestrator = { path = "../eu5-mod-orchestrator", editable = true }' in pyproject
+    assert 'eu5gameparser = { path = "../eu5-game-parser", editable = true }' in pyproject
     assert "package = false" in pyproject
 
 

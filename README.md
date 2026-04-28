@@ -8,12 +8,14 @@ validation, and deploys without making those packages depend on any specific mod
 ## Create A Workspace
 
 ```powershell
-uv run eu5-orchestrator init C:/Development/MyEu5Mod --name "My EU5 Mod" --mod-name "My EU5 Mod" --vanilla-root "C:/Games/steamapps/common/Europa Universalis V"
+uv run eu5-orchestrator init C:/Development/my-eu5-mod --name "My EU5 Mod" --mod-name "My EU5 Mod" --vanilla-root "C:/Games/steamapps/common/Europa Universalis V"
 ```
 
 The scaffold creates a project TOML, load-order TOML, scripts, `mod/`, `blueprints/accepted`,
 `artifacts/data`, `graphs`, and README files. It refuses non-empty target directories unless
 `--force` is passed.
+Generated workspaces expect sibling clones named `eu5-game-parser`, `eu5-mod-orchestrator`,
+`eu5-building-pipeline`, and `ProsperOrPerishLabelingPipeline`.
 
 ## Core Commands
 

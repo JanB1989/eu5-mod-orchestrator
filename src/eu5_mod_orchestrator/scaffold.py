@@ -48,6 +48,7 @@ def init_project(
         force=force,
     )
     _write_if_missing_or_force(local_example_path, _local_toml_example(mod_name), force=force)
+    _write_if_missing_or_force(target / "pyproject.toml", _pyproject_toml(name), force=force)
     _write_if_missing_or_force(target / ".gitignore", _gitignore(), force=force)
     _write_if_missing_or_force(target / "README.md", _readme(name, config_path.name), force=force)
     _write_if_missing_or_force(scripts / "analyze.ps1", _analyze_script(config_path.name), force=force)
@@ -129,6 +130,36 @@ target = "C:/Users/<you>/Documents/Paradox Interactive/Europa Universalis V/mod/
 """.lstrip()
 
 
+def _pyproject_toml(name: str) -> str:
+    return f"""
+[project]
+name = "{_toml_string(_slug(name))}"
+version = "0.1.0"
+description = "EU5 mod orchestration workspace."
+requires-python = ">=3.13"
+dependencies = [
+    "eu5-building-pipeline",
+    "eu5-mod-orchestrator",
+    "eu5gameparser",
+    "prosper-or-perish-labeling-pipeline",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+eu5-building-pipeline = {{ path = "../ProsperOrPerishBuildingPipeline", editable = true }}
+eu5-mod-orchestrator = {{ path = "../Eu5ModOrchestrator", editable = true }}
+eu5gameparser = {{ path = "../Eu5GameParser", editable = true }}
+prosper-or-perish-labeling-pipeline = {{ path = "../ProsperOrPerishLabelingPipeline", editable = true }}
+""".lstrip()
+
+
 def _gitignore() -> str:
     return """
 .venv/
@@ -162,6 +193,9 @@ EU5 mod orchestration workspace.
 uv sync --dev
 uv run eu5-orchestrator inspect --project {config_name}
 ```
+
+This workspace expects sibling clones of `Eu5GameParser`, `Eu5ModOrchestrator`,
+`ProsperOrPerishBuildingPipeline`, and `ProsperOrPerishLabelingPipeline` beside this directory.
 
 Edit the generated load-order TOML so `vanilla_root` points at your EU5 install and the mod
 entry points at your local mod copy under `mod/`.

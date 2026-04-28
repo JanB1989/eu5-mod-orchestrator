@@ -22,6 +22,7 @@ def test_init_project_creates_reusable_workspace(tmp_path: Path) -> None:
     assert (target / "my-mod.toml").exists()
     assert (target / "my-mod.load_order.toml").exists()
     assert (target / "my-mod.local.toml.example").exists()
+    assert (target / "pyproject.toml").exists()
     assert (target / "mod" / "My Mod").is_dir()
     assert (target / "blueprints" / "accepted").is_dir()
     assert (target / "artifacts" / "data" / "buildings").is_dir()
@@ -30,6 +31,9 @@ def test_init_project_creates_reusable_workspace(tmp_path: Path) -> None:
     assert "artifacts/" in (target / ".gitignore").read_text(encoding="utf-8")
     assert "graphs/" in (target / ".gitignore").read_text(encoding="utf-8")
     assert "savegame" in (target / "README.md").read_text(encoding="utf-8")
+    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'eu5-mod-orchestrator = { path = "../Eu5ModOrchestrator", editable = true }' in pyproject
+    assert "package = false" in pyproject
 
 
 def test_init_project_refuses_non_empty_directory_without_force(tmp_path: Path) -> None:

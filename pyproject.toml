@@ -3,7 +3,7 @@ name = "eu5-mod-orchestrator"
 version = "0.1.0"
 description = "Reusable orchestration engine for Europa Universalis V mod build pipelines."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "pyyaml>=6.0.3",
     "typer>=0.20.0",
@@ -18,8 +18,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "eu5-building-pipeline",
     "pytest>=9.0.3",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+eu5-building-pipeline = { path = "../ProsperOrPerishBuildingPipeline", editable = true }

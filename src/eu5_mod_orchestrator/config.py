@@ -11,18 +11,37 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class BuildingOutputLayout:
+    prefix: str
+    building_types: str
+    production_methods: str
+    prices: str
+    advances: str
+    localization: str
+    icons: str
+
+
+@dataclass(frozen=True)
 class OrchestratorConfig:
     config_path: Path
     project_root: Path
     name: str
     mod_root: Path
+    deploy_target: Path | None
     artifact_dir: Path
+    data_artifact_dir: Path
+    building_artifact_dir: Path
+    savegame_artifact_dir: Path
+    graph_dir: Path
     parser_artifact_dir: Path
     reports_dir: Path
     accepted_blueprints_dir: Path
     generated_blueprints_dir: Path
+    blueprint_manifest_path: Path | None
+    building_clean_paths: tuple[str, ...]
     load_order_path: Path | None
     profile: str
+    building_outputs: BuildingOutputLayout
     dependencies: dict[str, Path]
 
 
@@ -30,39 +49,100 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
     config_path = Path(path).resolve()
     with config_path.open("rb") as stream:
         raw = tomllib.load(stream)
+    raw = _merge(raw, _load_local_config(config_path))
     root = config_path.parent
 
     project = _mapping(raw.get("project"), "project")
+    deploy = _mapping(raw.get("deploy", {}), "deploy")
     artifacts = _mapping(raw.get("artifacts", {}), "artifacts")
     parser = _mapping(raw.get("parser", {}), "parser")
+    building_outputs = _mapping(raw.get("building_outputs", {}), "building_outputs")
+    building_blueprints = _mapping(raw.get("building_blueprints", {}), "building_blueprints")
     deps = _mapping(raw.get("dependencies", {}), "dependencies")
 
     name = _string(project, "name", "project")
     mod_root = _path(root, _string(project, "mod_root", "project"))
+    deploy_target_raw = deploy.get("target")
+    deploy_target = None
+    if deploy_target_raw not in (None, ""):
+        if not isinstance(deploy_target_raw, str):
+            raise ConfigError("deploy.target must be a string.")
+        deploy_target = _path(root, deploy_target_raw)
     artifact_dir = _path(root, str(artifacts.get("root", "artifacts")))
     accepted = _path(root, str(artifacts.get("accepted_blueprints", "blueprints/accepted")))
     generated = _path(root, str(artifacts.get("generated_blueprints", "blueprints/generated")))
     reports = _path(root, str(artifacts.get("reports", "reports")))
-    parser_artifacts = _path(root, str(artifacts.get("parser", "artifacts/parser")))
+    data_artifacts = _path(root, str(artifacts.get("data", "artifacts/data")))
+    building_artifacts = _path(
+        root,
+        str(artifacts.get("buildings", artifacts.get("parser", "artifacts/data/buildings"))),
+    )
+    savegame_artifacts = _path(root, str(artifacts.get("savegame", "artifacts/data/savegame")))
+    graphs = _path(root, str(artifacts.get("graphs", "graphs")))
 
     load_order_raw = parser.get("load_order")
     load_order_path = None if load_order_raw in (None, "") else _path(root, str(load_order_raw))
     profile = str(parser.get("profile", "merged_default"))
+    output_prefix = str(building_outputs.get("prefix", ""))
+    layout = BuildingOutputLayout(
+        prefix=output_prefix,
+        building_types=str(building_outputs.get("building_types", "in_game/common/building_types/{tag}.txt")),
+        production_methods=str(
+            building_outputs.get("production_methods", "in_game/common/production_methods/{tag}.txt")
+        ),
+        prices=str(building_outputs.get("prices", "in_game/common/prices/{tag}.txt")),
+        advances=str(building_outputs.get("advances", "in_game/common/advances/{tag}.txt")),
+        localization=str(
+            building_outputs.get("localization", "main_menu/localization/english/{tag}_l_english.yml")
+        ),
+        icons=str(building_outputs.get("icons", "in_game/gfx/interface/icons/buildings")),
+    )
+    manifest_raw = building_blueprints.get("manifest")
+    blueprint_manifest_path = None if manifest_raw in (None, "") else _path(root, str(manifest_raw))
+    clean_paths = building_blueprints.get("clean_paths", [])
+    if not isinstance(clean_paths, list) or not all(isinstance(item, str) for item in clean_paths):
+        raise ConfigError("building_blueprints.clean_paths must be a list of strings.")
 
     return OrchestratorConfig(
         config_path=config_path,
         project_root=root,
         name=name,
         mod_root=mod_root,
+        deploy_target=deploy_target,
         artifact_dir=artifact_dir,
-        parser_artifact_dir=parser_artifacts,
+        data_artifact_dir=data_artifacts,
+        building_artifact_dir=building_artifacts,
+        savegame_artifact_dir=savegame_artifacts,
+        graph_dir=graphs,
+        parser_artifact_dir=building_artifacts,
         reports_dir=reports,
         accepted_blueprints_dir=accepted,
         generated_blueprints_dir=generated,
+        blueprint_manifest_path=blueprint_manifest_path,
+        building_clean_paths=tuple(clean_paths),
         load_order_path=load_order_path,
         profile=profile,
+        building_outputs=layout,
         dependencies={key: _path(root, str(value)) for key, value in deps.items()},
     )
+
+
+def _load_local_config(config_path: Path) -> dict[str, Any]:
+    local_path = config_path.with_name(f"{config_path.stem}.local{config_path.suffix}")
+    if not local_path.exists():
+        return {}
+    with local_path.open("rb") as stream:
+        return tomllib.load(stream)
+
+
+def _merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _mapping(value: Any, name: str) -> dict[str, Any]:

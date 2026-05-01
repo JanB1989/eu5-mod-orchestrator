@@ -48,6 +48,64 @@ parser = "../eu5-game-parser"
     assert config.savegame_artifact_dir == tmp_path / "artifacts" / "data" / "savegame"
     assert config.graph_dir == tmp_path / "graphs"
     assert config.parser_artifact_dir == config.building_artifact_dir
+    assert config.labeling is None
+
+
+def test_load_project_config_accepts_labeling_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "foundations.toml"
+    config_path.write_text(
+        """
+[project]
+name = "Foundations"
+mod_root = "mod/Foundations"
+
+[labeling]
+enabled = true
+config = "../labeling/mod_injector_config.yaml"
+modifier_prefix = "pp"
+generated_label = "Prosper or Perish"
+managed_write_mode = "mod_root"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_project_config(config_path)
+
+    assert config.labeling is not None
+    assert config.labeling.enabled is True
+    assert config.labeling.config_path == tmp_path.parent / "labeling" / "mod_injector_config.yaml"
+    assert config.labeling.modifier_prefix == "pp"
+    assert config.labeling.generated_label == "Prosper or Perish"
+    assert config.labeling.managed_write_mode == "mod_root"
+
+
+def test_load_project_config_accepts_population_capacity_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "foundations.toml"
+    config_path.write_text(
+        """
+[project]
+name = "Foundations"
+mod_root = "mod/Foundations"
+
+[population_capacity]
+enabled = true
+config = "../population-capacity/population_capacity.toml"
+generated_label = "Prosper or Perish"
+managed_write_mode = "mod_root"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_project_config(config_path)
+
+    assert config.population_capacity is not None
+    assert config.population_capacity.enabled is True
+    assert (
+        config.population_capacity.config_path
+        == tmp_path.parent / "population-capacity" / "population_capacity.toml"
+    )
+    assert config.population_capacity.generated_label == "Prosper or Perish"
+    assert config.population_capacity.managed_write_mode == "mod_root"
 
 
 def test_load_project_config_accepts_explicit_artifact_layout(tmp_path: Path) -> None:

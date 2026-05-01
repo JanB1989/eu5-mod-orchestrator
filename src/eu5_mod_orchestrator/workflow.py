@@ -10,11 +10,20 @@ from eu5_mod_orchestrator.adapters.building_pipeline import (
     plan_building_text_outputs,
     render_building_blueprint,
 )
+from eu5_mod_orchestrator.adapters.labeling_pipeline import run_labeling_pipeline
 from eu5_mod_orchestrator.adapters.parser import (
     compare_mod_building_state,
     export_parser_facts,
     export_savegame,
     validate_generated_mod,
+)
+from eu5_mod_orchestrator.adapters.population_capacity import (
+    run_population_capacity_analyze,
+    run_population_capacity_effects,
+    run_population_capacity_extract,
+    run_population_capacity_extract_effects,
+    run_population_capacity_preview_start,
+    run_population_capacity_render,
 )
 from eu5_mod_orchestrator.artifacts import ensure_artifact_dirs
 from eu5_mod_orchestrator.blueprints import manifest_blueprint_files, validate_blueprint_file
@@ -36,6 +45,22 @@ def inspect_project(config: OrchestratorConfig) -> str:
         f"savegame_data: {config.savegame_artifact_dir}",
         f"graphs: {config.graph_dir}",
     ]
+    if config.labeling is not None:
+        lines.extend(
+            [
+                f"labeling_enabled: {config.labeling.enabled}",
+                f"labeling_config: {config.labeling.config_path}",
+                f"labeling_write_mode: {config.labeling.managed_write_mode}",
+            ]
+        )
+    if config.population_capacity is not None:
+        lines.extend(
+            [
+                f"population_capacity_enabled: {config.population_capacity.enabled}",
+                f"population_capacity_config: {config.population_capacity.config_path}",
+                f"population_capacity_write_mode: {config.population_capacity.managed_write_mode}",
+            ]
+        )
     if config.dependencies:
         lines.append("dependencies:")
         lines.extend(f"  {name}: {path}" for name, path in sorted(config.dependencies.items()))
@@ -75,6 +100,84 @@ def savegame(
         )
     except ModuleNotFoundError as exc:
         return f"parser package is not installed in this environment: {exc.name}"
+
+
+def label(
+    config: OrchestratorConfig,
+    *,
+    goods: str | None = None,
+    scale: str | None = None,
+    dry_run: bool = False,
+) -> str:
+    try:
+        return run_labeling_pipeline(config, goods=goods, scale=scale, dry_run=dry_run)
+    except ModuleNotFoundError as exc:
+        return f"labeling pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_analyze(config: OrchestratorConfig) -> str:
+    try:
+        return run_population_capacity_analyze(config)
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_effects(config: OrchestratorConfig) -> str:
+    try:
+        return run_population_capacity_effects(config)
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_preview_start(
+    config: OrchestratorConfig,
+    *,
+    group_by: str | None = None,
+    include_no_raw_material: bool = False,
+) -> str:
+    try:
+        return run_population_capacity_preview_start(
+            config,
+            group_by=group_by,
+            include_no_raw_material=include_no_raw_material,
+        )
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_render(
+    config: OrchestratorConfig,
+    *,
+    dry_run: bool = False,
+) -> str:
+    try:
+        return run_population_capacity_render(config, dry_run=dry_run)
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_extract(
+    config: OrchestratorConfig,
+    *,
+    paths: list[Path],
+    dry_run: bool = False,
+) -> str:
+    try:
+        return run_population_capacity_extract(config, paths=paths, dry_run=dry_run)
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
+
+
+def population_capacity_extract_effects(
+    config: OrchestratorConfig,
+    *,
+    paths: list[Path],
+    dry_run: bool = False,
+) -> str:
+    try:
+        return run_population_capacity_extract_effects(config, paths=paths, dry_run=dry_run)
+    except ModuleNotFoundError as exc:
+        return f"population capacity pipeline package is not installed in this environment: {exc.name}"
 
 
 def render(
@@ -176,6 +279,8 @@ def build(
     return "\n\n".join(
         [
             analyze(config),
+            label(config, dry_run=dry_run),
+            population_capacity_render(config, dry_run=dry_run),
             render(config, dry_run=dry_run, overwrite=overwrite, refresh_assets=refresh_assets),
             validate(config),
         ]

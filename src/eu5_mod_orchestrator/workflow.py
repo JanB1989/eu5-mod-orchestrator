@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 from eu5_mod_orchestrator.adapters.building_pipeline import (
     MANAGED_BLOCK_START,
     building_text_output_dirs,
+    evaluate_building_blueprint,
+    evaluate_building_blueprint_data,
     plan_building_text_outputs,
     render_building_blueprint,
 )
@@ -15,6 +18,7 @@ from eu5_mod_orchestrator.adapters.parser import (
     compare_mod_building_state,
     export_parser_facts,
     export_savegame,
+    load_balance_prices,
     validate_generated_mod,
 )
 from eu5_mod_orchestrator.adapters.population_capacity import (
@@ -217,6 +221,60 @@ def list_blueprints(config: OrchestratorConfig) -> str:
     return "\n\n".join(summaries)
 
 
+def evaluate_blueprints(
+    config: OrchestratorConfig,
+    *,
+    output_format: str = "text",
+    building: str | None = None,
+) -> str:
+    ensure_artifact_dirs(config)
+    blueprints = _blueprint_files(config)
+    if not blueprints:
+        return f"no accepted blueprints found in {config.accepted_blueprints_dir}"
+    if building is not None:
+        blueprints = _filter_blueprints(blueprints, building)
+        if not blueprints:
+            return f"no accepted blueprints matched {building!r}"
+    try:
+        price_by_good = load_balance_prices(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+    except ModuleNotFoundError as exc:
+        return f"parser package is not installed in this environment: {exc.name}"
+
+    summaries: list[str] = []
+    evaluations = []
+    for blueprint in blueprints:
+        validate_blueprint_file(blueprint)
+        try:
+            if output_format == "json":
+                from eu5_building_pipeline.evaluation import evaluation_to_dict
+
+                evaluations.append(
+                    evaluation_to_dict(
+                        evaluate_building_blueprint_data(
+                            blueprint,
+                            config,
+                            price_by_good=price_by_good,
+                        )
+                    )
+                )
+            else:
+                summaries.append(
+                    evaluate_building_blueprint(
+                        blueprint,
+                        config,
+                        price_by_good=price_by_good,
+                    )
+                )
+        except ModuleNotFoundError as exc:
+            summaries.append(f"building pipeline package is not installed: {exc.name}")
+    if output_format == "json":
+        return json.dumps(evaluations, indent=2, sort_keys=True)
+    return "\n\n".join(summaries)
+
+
 def validate(config: OrchestratorConfig) -> str:
     ensure_artifact_dirs(config)
     errors = []
@@ -280,8 +338,9 @@ def build(
         [
             analyze(config),
             label(config, dry_run=dry_run),
-            population_capacity_render(config, dry_run=dry_run),
+            evaluate_blueprints(config),
             render(config, dry_run=dry_run, overwrite=overwrite, refresh_assets=refresh_assets),
+            population_capacity_render(config, dry_run=dry_run),
             validate(config),
         ]
     )
@@ -289,6 +348,17 @@ def build(
 
 def _blueprint_files(config: OrchestratorConfig) -> list[Path]:
     return manifest_blueprint_files(config.accepted_blueprints_dir, config.blueprint_manifest_path)
+
+
+def _filter_blueprints(blueprints: list[Path], building: str) -> list[Path]:
+    matches: list[Path] = []
+    for blueprint in blueprints:
+        raw = validate_blueprint_file(blueprint)
+        raw_building = raw["building"]
+        candidates = {blueprint.stem, str(raw.get("tag", "")), str(raw_building.get("key", ""))}
+        if building in candidates:
+            matches.append(blueprint)
+    return matches
 
 
 def _render_blueprints(

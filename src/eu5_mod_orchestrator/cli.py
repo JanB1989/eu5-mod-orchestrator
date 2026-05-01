@@ -11,6 +11,7 @@ from eu5_mod_orchestrator.workflow import (
     analyze as run_analyze,
     build as run_build,
     deploy as run_deploy,
+    evaluate_blueprints as run_evaluate_blueprints,
     inspect_project,
     label as run_label,
     list_blueprints as run_list_blueprints,
@@ -217,6 +218,20 @@ def blueprint_list(
     project: Annotated[Path, typer.Option("--project", "-p", help="Project TOML config.")]
 ) -> None:
     typer.echo(run_list_blueprints(_config(project)))
+
+
+@blueprint_app.command("evaluate")
+def blueprint_evaluate(
+    project: Annotated[Path, typer.Option("--project", "-p", help="Project TOML config.")],
+    building: Annotated[
+        str | None,
+        typer.Option("--building", "-b", help="Evaluate one building key, tag, or blueprint filename stem."),
+    ] = None,
+    output_format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
+) -> None:
+    if output_format not in {"text", "json"}:
+        raise typer.BadParameter("format must be text or json")
+    typer.echo(run_evaluate_blueprints(_config(project), output_format=output_format, building=building))
 
 
 @blueprint_app.command("parity")

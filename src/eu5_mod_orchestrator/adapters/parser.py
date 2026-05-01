@@ -59,6 +59,24 @@ def export_parser_facts(
     return f"exported parser facts to {data_dir}\nexplorer: {explorer_path}"
 
 
+def load_balance_prices(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+) -> dict[str, float]:
+    from eu5gameparser.domain.goods import load_goods_data
+
+    kwargs = {"profile": profile}
+    if load_order_path is not None:
+        kwargs["load_order_path"] = load_order_path
+    goods_data = load_goods_data(**kwargs)
+    return {
+        row["name"]: row["default_market_price"]
+        for row in goods_data.goods.to_dicts()
+        if row["default_market_price"] is not None
+    }
+
+
 def export_savegame(
     data_dir: Path,
     graph_dir: Path,

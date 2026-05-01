@@ -1,8 +1,9 @@
+import json
 from pathlib import Path
 
 from eu5_mod_orchestrator.config import load_project_config
 from eu5_mod_orchestrator import workflow
-from eu5_mod_orchestrator.workflow import build, label, population_capacity_effects, population_capacity_render, render
+from eu5_mod_orchestrator.workflow import build, evaluate_blueprints, label, population_capacity_effects, population_capacity_render, render
 
 
 def _config(tmp_path: Path):
@@ -185,6 +186,11 @@ def test_build_runs_labeling_between_analyze_and_validate(tmp_path: Path, monkey
     )
     monkeypatch.setattr(
         workflow,
+        "evaluate_blueprints",
+        lambda config_arg: calls.append("evaluate") or "evaluate",
+    )
+    monkeypatch.setattr(
+        workflow,
         "population_capacity_render",
         lambda config_arg, dry_run=False: calls.append("population_capacity") or "population_capacity",
     )
@@ -197,8 +203,90 @@ def test_build_runs_labeling_between_analyze_and_validate(tmp_path: Path, monkey
 
     summary = build(config, dry_run=True)
 
-    assert calls == ["analyze", "label", "population_capacity", "render", "validate"]
-    assert summary == "analyze\n\nlabel\n\npopulation_capacity\n\nrender\n\nvalidate"
+    assert calls == ["analyze", "label", "evaluate", "render", "population_capacity", "validate"]
+    assert summary == "analyze\n\nlabel\n\nevaluate\n\nrender\n\npopulation_capacity\n\nvalidate"
+
+
+def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    blueprint = _blueprint(tmp_path)
+    calls = []
+
+    monkeypatch.setattr(
+        workflow,
+        "load_balance_prices",
+        lambda profile, load_order_path: {"tools": 3.0},
+    )
+
+    def fake_evaluate(blueprint_arg, config_arg, *, price_by_good):
+        calls.append((blueprint_arg, config_arg, price_by_good))
+        return "fake evaluation"
+
+    monkeypatch.setattr(workflow, "evaluate_building_blueprint", fake_evaluate)
+
+    assert evaluate_blueprints(config) == "fake evaluation"
+    assert calls == [(blueprint, config, {"tools": 3.0})]
+
+
+def test_evaluate_blueprints_can_emit_json(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    _blueprint(tmp_path)
+
+    monkeypatch.setattr(
+        workflow,
+        "load_balance_prices",
+        lambda profile, load_order_path: {"tools": 3.0},
+    )
+
+    class FakeEvaluation:
+        tag = "test"
+        building = "test_building"
+        warnings = ()
+        violations = ()
+        methods = ()
+
+    monkeypatch.setattr(
+        workflow,
+        "evaluate_building_blueprint_data",
+        lambda blueprint_arg, config_arg, price_by_good: FakeEvaluation(),
+    )
+
+    assert json.loads(evaluate_blueprints(config, output_format="json")) == [
+        {"building": "test_building", "methods": [], "tag": "test", "violations": [], "warnings": []}
+    ]
+
+
+def test_evaluate_blueprints_can_filter_to_single_building(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    blueprint = _blueprint(tmp_path)
+    other = tmp_path / "blueprints" / "accepted" / "buildings" / "other_building.yml"
+    other.write_text(
+        """
+version: 2
+tag: other
+building:
+  key: other_building
+  body: |
+    is_foreign = no
+""".strip(),
+        encoding="utf-8",
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        workflow,
+        "load_balance_prices",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "evaluate_building_blueprint",
+        lambda blueprint_arg, config_arg, price_by_good: calls.append(blueprint_arg)
+        or "fake evaluation",
+    )
+
+    assert evaluate_blueprints(config, building="test_building") == "fake evaluation"
+    assert calls == [blueprint]
 
 
 def test_population_capacity_render_calls_adapter(tmp_path: Path, monkeypatch) -> None:

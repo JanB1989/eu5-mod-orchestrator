@@ -74,6 +74,37 @@ def render_building_blueprint(
     return result.summary()
 
 
+def evaluate_building_blueprint(
+    blueprint_path: Path,
+    config: OrchestratorConfig,
+    *,
+    price_by_good: dict[str, float],
+) -> str:
+    from eu5_building_pipeline.evaluation import format_evaluation
+
+    return format_evaluation(
+        evaluate_building_blueprint_data(
+            blueprint_path,
+            config,
+            price_by_good=price_by_good,
+        )
+    )
+
+
+def evaluate_building_blueprint_data(
+    blueprint_path: Path,
+    config: OrchestratorConfig,
+    *,
+    price_by_good: dict[str, float],
+):
+    from eu5_building_pipeline.evaluation import evaluate_template_file
+
+    return evaluate_template_file(
+        blueprint_path,
+        price_by_good=price_by_good,
+    )
+
+
 def plan_building_text_outputs(
     blueprint_path: Path,
     config: OrchestratorConfig,

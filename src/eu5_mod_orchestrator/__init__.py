@@ -5,7 +5,7 @@ from eu5_mod_orchestrator.blueprints import BlueprintError, validate_blueprint_f
 from eu5_mod_orchestrator.config import OrchestratorConfig, load_project_config
 from eu5_mod_orchestrator.deploy import DeployError
 from eu5_mod_orchestrator.scaffold import init_project
-from eu5_mod_orchestrator.workflow import analyze, build, deploy, inspect_project, render, savegame, validate
+from eu5_mod_orchestrator.workflow import analyze, build, deploy, evaluate_blueprints, inspect_project, render, savegame, validate
 
 __all__ = [
     "BlueprintError",
@@ -14,6 +14,7 @@ __all__ = [
     "analyze",
     "build",
     "deploy",
+    "evaluate_blueprints",
     "ensure_artifact_dirs",
     "inspect_project",
     "init_project",

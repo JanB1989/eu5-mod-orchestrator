@@ -49,6 +49,7 @@ parser = "../eu5-game-parser"
     assert config.graph_dir == tmp_path / "graphs"
     assert config.parser_artifact_dir == config.building_artifact_dir
     assert config.labeling is None
+    assert config.blueprint_evaluation.raw_input_efficiency_per_good == 0.05
 
 
 def test_load_project_config_accepts_labeling_config(tmp_path: Path) -> None:
@@ -106,6 +107,77 @@ managed_write_mode = "mod_root"
     )
     assert config.population_capacity.generated_label == "Prosper or Perish"
     assert config.population_capacity.managed_write_mode == "mod_root"
+
+
+def test_load_project_config_accepts_blueprint_evaluation_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "foundations.toml"
+    config_path.write_text(
+        """
+[project]
+name = "Foundations"
+mod_root = "mod/Foundations"
+
+[blueprint_evaluation]
+raw_input_efficiency_per_good = 0.04
+profit_percent_min = -0.25
+profit_percent_max = 0.25
+base_output_per_1k_min = 0.08
+base_output_per_1k_max = 0.14
+age_throughput_growth = 0.12
+throughput_tolerance = 0.20
+amortization_months_min = 40
+amortization_months_max = 80
+
+[blueprint_evaluation.throughput_gold_per_1k]
+peasants = 1.1
+laborers = 1.6
+burghers = 2.6
+
+[blueprint_evaluation.employment_size_constants]
+rural_peasant_produce_employment = 3
+guild_employment = 4
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_project_config(config_path)
+
+    evaluation = config.blueprint_evaluation
+    assert evaluation.raw_input_efficiency_per_good == 0.04
+    assert evaluation.profit_percent_min == -0.25
+    assert evaluation.profit_percent_max == 0.25
+    assert evaluation.base_output_per_1k_min == 0.08
+    assert evaluation.base_output_per_1k_max == 0.14
+    assert evaluation.throughput_gold_per_1k["laborers"] == 1.6
+    assert evaluation.age_throughput_growth == 0.12
+    assert evaluation.throughput_tolerance == 0.20
+    assert evaluation.amortization_months_min == 40
+    assert evaluation.amortization_months_max == 80
+    assert evaluation.roi_cycles_max == 80
+    assert evaluation.to_pipeline_config()["amortization_months_min"] == 40
+    assert evaluation.to_pipeline_config()["amortization_months_max"] == 80
+    assert evaluation.employment_size_constants["guild_employment"] == 4
+
+
+def test_load_project_config_accepts_legacy_roi_cycles_alias(tmp_path: Path) -> None:
+    config_path = tmp_path / "foundations.toml"
+    config_path.write_text(
+        """
+[project]
+name = "Foundations"
+mod_root = "mod/Foundations"
+
+[blueprint_evaluation]
+roi_cycles_max = 80
+""".strip(),
+        encoding="utf-8",
+    )
+
+    evaluation = load_project_config(config_path).blueprint_evaluation
+
+    assert evaluation.amortization_months_max == 80
+    assert evaluation.to_pipeline_config()["amortization_months_max"] == 80
+    assert evaluation.to_pipeline_config()["roi_cycles_max"] == 80
 
 
 def test_load_project_config_accepts_explicit_artifact_layout(tmp_path: Path) -> None:

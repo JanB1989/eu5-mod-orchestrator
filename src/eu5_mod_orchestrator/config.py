@@ -39,6 +39,41 @@ class PopulationCapacityConfig:
 
 
 @dataclass(frozen=True)
+class BlueprintEvaluationConfig:
+    raw_input_efficiency_per_good: float
+    profit_percent_min: float
+    profit_percent_max: float
+    base_output_per_1k_min: float
+    base_output_per_1k_max: float
+    throughput_gold_per_1k: dict[str, float]
+    age_throughput_growth: float
+    throughput_tolerance: float
+    amortization_months_min: float | None
+    amortization_months_max: float | None
+    employment_size_constants: dict[str, float]
+
+    @property
+    def roi_cycles_max(self) -> float | None:
+        return self.amortization_months_max
+
+    def to_pipeline_config(self) -> dict[str, Any]:
+        return {
+            "raw_input_efficiency_per_good": self.raw_input_efficiency_per_good,
+            "profit_percent_min": self.profit_percent_min,
+            "profit_percent_max": self.profit_percent_max,
+            "base_output_per_1k_min": self.base_output_per_1k_min,
+            "base_output_per_1k_max": self.base_output_per_1k_max,
+            "throughput_gold_per_1k": dict(self.throughput_gold_per_1k),
+            "age_throughput_growth": self.age_throughput_growth,
+            "throughput_tolerance": self.throughput_tolerance,
+            "amortization_months_min": self.amortization_months_min,
+            "amortization_months_max": self.amortization_months_max,
+            "roi_cycles_max": self.amortization_months_max,
+            "employment_size_constants": dict(self.employment_size_constants),
+        }
+
+
+@dataclass(frozen=True)
 class OrchestratorConfig:
     config_path: Path
     project_root: Path
@@ -61,6 +96,7 @@ class OrchestratorConfig:
     building_outputs: BuildingOutputLayout
     labeling: LabelingConfig | None
     population_capacity: PopulationCapacityConfig | None
+    blueprint_evaluation: BlueprintEvaluationConfig
     dependencies: dict[str, Path]
 
 
@@ -79,6 +115,7 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
     building_blueprints = _mapping(raw.get("building_blueprints", {}), "building_blueprints")
     labeling_raw = raw.get("labeling")
     population_capacity_raw = raw.get("population_capacity")
+    blueprint_evaluation_raw = raw.get("blueprint_evaluation")
     deps = _mapping(raw.get("dependencies", {}), "dependencies")
 
     name = _string(project, "name", "project")
@@ -125,6 +162,7 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
         raise ConfigError("building_blueprints.clean_paths must be a list of strings.")
     labeling = _labeling_config(root, labeling_raw)
     population_capacity = _population_capacity_config(root, population_capacity_raw)
+    blueprint_evaluation = _blueprint_evaluation_config(blueprint_evaluation_raw)
 
     return OrchestratorConfig(
         config_path=config_path,
@@ -148,7 +186,51 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
         building_outputs=layout,
         labeling=labeling,
         population_capacity=population_capacity,
+        blueprint_evaluation=blueprint_evaluation,
         dependencies={key: _path(root, str(value)) for key, value in deps.items()},
+    )
+
+
+def _blueprint_evaluation_config(value: Any) -> BlueprintEvaluationConfig:
+    raw = {} if value is None else _mapping(value, "blueprint_evaluation")
+    throughput_defaults = {"peasants": 1.0, "laborers": 1.5, "labourers": 1.5, "burghers": 2.5}
+    throughput_raw = _mapping(raw.get("throughput_gold_per_1k", {}), "blueprint_evaluation.throughput_gold_per_1k")
+    throughput = dict(throughput_defaults)
+    throughput.update(
+        {
+            str(key): _float(value, f"blueprint_evaluation.throughput_gold_per_1k.{key}")
+            for key, value in throughput_raw.items()
+        }
+    )
+    constants = {
+        str(key): _float(value, f"blueprint_evaluation.employment_size_constants.{key}")
+        for key, value in _mapping(
+            raw.get("employment_size_constants", {}),
+            "blueprint_evaluation.employment_size_constants",
+        ).items()
+    }
+    return BlueprintEvaluationConfig(
+        raw_input_efficiency_per_good=_optional_float(raw, "raw_input_efficiency_per_good", 0.05),
+        profit_percent_min=_optional_float(raw, "profit_percent_min", -0.30),
+        profit_percent_max=_optional_float(raw, "profit_percent_max", 0.30),
+        base_output_per_1k_min=_optional_float(raw, "base_output_per_1k_min", 0.07),
+        base_output_per_1k_max=_optional_float(raw, "base_output_per_1k_max", 0.15),
+        throughput_gold_per_1k=throughput,
+        age_throughput_growth=_optional_float(raw, "age_throughput_growth", 0.15),
+        throughput_tolerance=_optional_float(raw, "throughput_tolerance", 0.30),
+        amortization_months_min=_optional_alias_float(
+            raw,
+            canonical_key="amortization_months_min",
+            legacy_key="",
+            default=None,
+        ),
+        amortization_months_max=_optional_alias_float(
+            raw,
+            canonical_key="amortization_months_max",
+            legacy_key="roi_cycles_max",
+            default=None,
+        ),
+        employment_size_constants=constants,
     )
 
 
@@ -228,6 +310,30 @@ def _bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _float(value: Any, name: str) -> float:
+    if not isinstance(value, int | float):
+        raise ConfigError(f"{name} must be a number.")
+    return float(value)
+
+
+def _optional_float(raw: dict[str, Any], key: str, default: float) -> float:
+    return default if key not in raw else _float(raw[key], f"blueprint_evaluation.{key}")
+
+
+def _optional_alias_float(
+    raw: dict[str, Any],
+    *,
+    canonical_key: str,
+    legacy_key: str,
+    default: float | None,
+) -> float | None:
+    if canonical_key in raw:
+        return _float(raw[canonical_key], f"blueprint_evaluation.{canonical_key}")
+    if legacy_key and legacy_key in raw:
+        return _float(raw[legacy_key], f"blueprint_evaluation.{legacy_key}")
+    return default
 
 
 def _path(root: Path, raw: str) -> Path:

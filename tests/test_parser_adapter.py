@@ -2,7 +2,15 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-from eu5_mod_orchestrator.adapters.parser import export_parser_facts, export_savegame
+from eu5_mod_orchestrator.adapters.parser import (
+    export_parser_facts,
+    export_savegame,
+    global_building_unlock_ages_from_rows,
+    global_unlock_ages_from_rows,
+    load_script_values,
+    raw_material_goods_from_rows,
+    script_values_from_text,
+)
 
 
 class FakeTable:
@@ -122,3 +130,129 @@ def test_export_savegame_writes_tables_and_explorer(tmp_path: Path, monkeypatch)
     assert calls["parquet"][1]["force_rakaly"] is True
     assert str(data_dir) in result
     assert str(graph_dir / "savegame_explorer.html") in result
+
+
+def test_global_unlock_ages_filter_potential_and_choose_earliest() -> None:
+    rows = [
+        {
+            "age": "age_4_reformation",
+            "has_potential": False,
+            "unlock_production_method": ["pp_method"],
+        },
+        {
+            "age": "age_2_renaissance",
+            "has_potential": True,
+            "unlock_production_method": ["pp_method", "pp_gated"],
+        },
+        {
+            "age": "age_3_discovery",
+            "has_potential": False,
+            "unlock_production_method": ["pp_method"],
+        },
+    ]
+
+    assert global_unlock_ages_from_rows(
+        rows,
+        {
+            "age_2_renaissance": 1,
+            "age_3_discovery": 2,
+            "age_4_reformation": 3,
+        },
+    ) == {"pp_method": "age_3_discovery"}
+
+
+def test_global_building_unlock_ages_filter_potential_and_choose_earliest() -> None:
+    rows = [
+        {
+            "age": "age_4_reformation",
+            "has_potential": False,
+            "unlock_building": ["pp_building"],
+        },
+        {
+            "age": "age_2_renaissance",
+            "has_potential": True,
+            "unlock_building": ["pp_building", "pp_gated"],
+        },
+        {
+            "age": "age_3_discovery",
+            "has_potential": False,
+            "unlock_building": ["pp_building"],
+        },
+    ]
+
+    assert global_building_unlock_ages_from_rows(
+        rows,
+        {
+            "age_2_renaissance": 1,
+            "age_3_discovery": 2,
+            "age_4_reformation": 3,
+        },
+    ) == {"pp_building": "age_3_discovery"}
+
+
+def test_raw_material_goods_from_rows_filters_category() -> None:
+    assert raw_material_goods_from_rows(
+        [
+            {"name": "iron", "category": "raw_material"},
+            {"name": "tools", "category": "manufactured"},
+            {"name": "coal", "category": "raw_material"},
+        ]
+    ) == {"iron", "coal"}
+
+
+def test_script_values_from_text_reads_numeric_scalars() -> None:
+    assert script_values_from_text(
+        """
+        rural_peasant_produce_employment = 1.0
+        manpower_employment = 2
+        ignored_block = { gold = 1 }
+        negative_value = -0.25 # comment
+        """
+    ) == {
+        "rural_peasant_produce_employment": 1.0,
+        "manpower_employment": 2.0,
+        "negative_value": -0.25,
+    }
+
+
+def test_load_script_values_uses_profile_load_order_with_later_layers_overriding(tmp_path: Path) -> None:
+    vanilla_values = tmp_path / "vanilla" / "game" / "main_menu" / "common" / "script_values"
+    mod_values = tmp_path / "mod" / "main_menu" / "common" / "script_values"
+    vanilla_values.mkdir(parents=True)
+    mod_values.mkdir(parents=True)
+    (vanilla_values / "default_values.txt").write_text(
+        """
+        rural_peasant_produce_employment = 1.0
+        manpower_employment = 1.0
+        """,
+        encoding="utf-8",
+    )
+    (mod_values / "override_values.txt").write_text(
+        """
+        manpower_employment = 2.0
+        guild_employment = 3.0
+        """,
+        encoding="utf-8",
+    )
+    load_order = tmp_path / "constructor.load_order.toml"
+    load_order.write_text(
+        """
+        [paths]
+        vanilla_root = "vanilla"
+
+        [[mods]]
+        id = "constructor"
+        name = "Constructor"
+        root = "mod"
+
+        [profiles]
+        constructor = ["vanilla", "constructor"]
+        """,
+        encoding="utf-8",
+    )
+
+    assert load_script_values(profile="constructor", load_order_path=load_order) == {
+        "rural_peasant_produce_employment": 1.0,
+        "manpower_employment": 2.0,
+        "guild_employment": 3.0,
+    }

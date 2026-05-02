@@ -1,9 +1,18 @@
 import json
 from pathlib import Path
 
+from eu5_building_pipeline.evaluation import BlueprintEvaluation, EvaluatedProductionMethod
 from eu5_mod_orchestrator.config import load_project_config
 from eu5_mod_orchestrator import workflow
-from eu5_mod_orchestrator.workflow import build, evaluate_blueprints, label, population_capacity_effects, population_capacity_render, render
+from eu5_mod_orchestrator.workflow import (
+    build,
+    evaluate_blueprint_good,
+    evaluate_blueprints,
+    label,
+    population_capacity_effects,
+    population_capacity_render,
+    render,
+)
 
 
 def _config(tmp_path: Path):
@@ -86,6 +95,59 @@ localization:
         encoding="utf-8",
     )
     return blueprint
+
+
+def _evaluated_method(name: str, produced: str | None) -> EvaluatedProductionMethod:
+    return EvaluatedProductionMethod(
+        name=name,
+        building="test_building",
+        global_unlock_age=None,
+        produced=produced,
+        output=1.0,
+        inputs=(),
+        production_efficiency=1.0,
+        building_pop_type=None,
+        employment_size=None,
+        building_cost_gold=None,
+        raw_material_input_count=0,
+        input_gold=0.0,
+        output_gold=1.0,
+        profit_gold=1.0,
+        profit_percent=None,
+        input_gold_per_1k=None,
+        output_gold_per_1k=None,
+        base_output_per_1k=None,
+        amortization_months=None,
+        missing_price_goods=(),
+        warnings=(),
+        rule_diagnostics=(),
+        allowed_violations=(),
+        violations=(),
+    )
+
+
+def _evaluation(
+    *,
+    tag: str = "test",
+    building: str = "test_building",
+    methods: tuple[EvaluatedProductionMethod, ...],
+) -> BlueprintEvaluation:
+    return BlueprintEvaluation(
+        tag=tag,
+        building=building,
+        methods=methods,
+        warnings=(),
+        allowed_violations=(),
+        violations=(),
+    )
+
+
+def _stub_evaluation_inputs(monkeypatch) -> None:
+    monkeypatch.setattr(workflow, "load_balance_prices", lambda profile, load_order_path: {})
+    monkeypatch.setattr(workflow, "load_global_unlock_ages", lambda profile, load_order_path: {})
+    monkeypatch.setattr(workflow, "load_global_building_unlock_ages", lambda profile, load_order_path: {})
+    monkeypatch.setattr(workflow, "load_raw_material_goods", lambda profile, load_order_path: set())
+    monkeypatch.setattr(workflow, "load_script_values", lambda profile, load_order_path: {})
 
 
 def test_render_removes_stale_managed_outputs_after_prefix_change(tmp_path: Path) -> None:
@@ -217,15 +279,64 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
         "load_balance_prices",
         lambda profile, load_order_path: {"tools": 3.0},
     )
+    monkeypatch.setattr(
+        workflow,
+        "load_global_unlock_ages",
+        lambda profile, load_order_path: {"pp_method": "age_2_renaissance"},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_global_building_unlock_ages",
+        lambda profile, load_order_path: {"test_building": "age_2_renaissance"},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_raw_material_goods",
+        lambda profile, load_order_path: {"iron"},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_script_values",
+        lambda profile, load_order_path: {"rural_peasant_produce_employment": 1.0},
+    )
 
-    def fake_evaluate(blueprint_arg, config_arg, *, price_by_good):
-        calls.append((blueprint_arg, config_arg, price_by_good))
+    def fake_evaluate(
+        blueprint_arg,
+        config_arg,
+        *,
+        price_by_good,
+        raw_material_goods,
+        script_values,
+        global_unlock_age_by_method,
+        global_unlock_age_by_building,
+    ):
+        calls.append(
+            (
+                blueprint_arg,
+                config_arg,
+                price_by_good,
+                raw_material_goods,
+                script_values,
+                global_unlock_age_by_method,
+                global_unlock_age_by_building,
+            )
+        )
         return "fake evaluation"
 
     monkeypatch.setattr(workflow, "evaluate_building_blueprint", fake_evaluate)
 
     assert evaluate_blueprints(config) == "fake evaluation"
-    assert calls == [(blueprint, config, {"tools": 3.0})]
+    assert calls == [
+        (
+            blueprint,
+            config,
+            {"tools": 3.0},
+            {"iron"},
+            {"rural_peasant_produce_employment": 1.0},
+            {"pp_method": "age_2_renaissance"},
+            {"test_building": "age_2_renaissance"},
+        )
+    ]
 
 
 def test_evaluate_blueprints_can_emit_json(tmp_path: Path, monkeypatch) -> None:
@@ -237,22 +348,50 @@ def test_evaluate_blueprints_can_emit_json(tmp_path: Path, monkeypatch) -> None:
         "load_balance_prices",
         lambda profile, load_order_path: {"tools": 3.0},
     )
+    monkeypatch.setattr(
+        workflow,
+        "load_global_unlock_ages",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_global_building_unlock_ages",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_raw_material_goods",
+        lambda profile, load_order_path: set(),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_script_values",
+        lambda profile, load_order_path: {},
+    )
 
     class FakeEvaluation:
         tag = "test"
         building = "test_building"
         warnings = ()
+        allowed_violations = ()
         violations = ()
         methods = ()
 
     monkeypatch.setattr(
         workflow,
         "evaluate_building_blueprint_data",
-        lambda blueprint_arg, config_arg, price_by_good: FakeEvaluation(),
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: FakeEvaluation(),
     )
 
     assert json.loads(evaluate_blueprints(config, output_format="json")) == [
-        {"building": "test_building", "methods": [], "tag": "test", "violations": [], "warnings": []}
+        {
+            "allowed_violations": [],
+            "building": "test_building",
+            "methods": [],
+            "tag": "test",
+            "violations": [],
+            "warnings": [],
+        }
     ]
 
 
@@ -280,13 +419,115 @@ building:
     )
     monkeypatch.setattr(
         workflow,
+        "load_global_unlock_ages",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_global_building_unlock_ages",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_raw_material_goods",
+        lambda profile, load_order_path: set(),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "load_script_values",
+        lambda profile, load_order_path: {},
+    )
+    monkeypatch.setattr(
+        workflow,
         "evaluate_building_blueprint",
-        lambda blueprint_arg, config_arg, price_by_good: calls.append(blueprint_arg)
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: calls.append(blueprint_arg)
         or "fake evaluation",
     )
 
     assert evaluate_blueprints(config, building="test_building") == "fake evaluation"
     assert calls == [blueprint]
+
+
+def test_evaluate_blueprint_good_outputs_single_text_report(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    _blueprint(tmp_path)
+    _stub_evaluation_inputs(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "evaluate_building_blueprint_data",
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: _evaluation(
+            methods=(
+                _evaluated_method("coal_method", "coal"),
+                _evaluated_method("tools_method", "tools"),
+            )
+        ),
+    )
+
+    summary = evaluate_blueprint_good(config, good="coal")
+
+    assert summary.count("Columns:") == 1
+    assert "coal_method" in summary
+    assert "tools_method" not in summary
+
+
+def test_evaluate_blueprint_good_can_emit_flat_json(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    _blueprint(tmp_path)
+    other = tmp_path / "blueprints" / "accepted" / "buildings" / "other_building.yml"
+    other.write_text(
+        """
+version: 2
+tag: other
+building:
+  key: other_building
+  body: |
+    is_foreign = no
+""".strip(),
+        encoding="utf-8",
+    )
+    _stub_evaluation_inputs(monkeypatch)
+
+    def fake_evaluate(
+        blueprint_arg,
+        config_arg,
+        *,
+        price_by_good,
+        raw_material_goods,
+        script_values,
+        global_unlock_age_by_method,
+        global_unlock_age_by_building,
+    ):
+        if blueprint_arg == other:
+            return _evaluation(tag="other", building="other_building", methods=(_evaluated_method("tools_method", "tools"),))
+        return _evaluation(
+            methods=(
+                _evaluated_method("coal_method", "coal"),
+                _evaluated_method("tools_method", "tools"),
+            )
+        )
+
+    monkeypatch.setattr(workflow, "evaluate_building_blueprint_data", fake_evaluate)
+
+    result = json.loads(evaluate_blueprint_good(config, output_format="json", good="coal"))
+
+    assert result["good"] == "coal"
+    assert [method["building"] for method in result["methods"]] == ["test_building"]
+    assert [method["name"] for method in result["methods"]] == ["coal_method"]
+
+
+def test_evaluate_blueprint_good_reports_when_good_has_no_matches(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    _blueprint(tmp_path)
+    _stub_evaluation_inputs(monkeypatch)
+    monkeypatch.setattr(
+        workflow,
+        "evaluate_building_blueprint_data",
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: _evaluation(
+            methods=(_evaluated_method("tools_method", "tools"),)
+        ),
+    )
+
+    assert evaluate_blueprint_good(config, good="coal") == "no accepted blueprint methods produced 'coal'"
 
 
 def test_population_capacity_render_calls_adapter(tmp_path: Path, monkeypatch) -> None:

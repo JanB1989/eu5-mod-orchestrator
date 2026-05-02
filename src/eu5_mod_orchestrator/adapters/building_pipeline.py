@@ -79,6 +79,10 @@ def evaluate_building_blueprint(
     config: OrchestratorConfig,
     *,
     price_by_good: dict[str, float],
+    raw_material_goods: set[str],
+    script_values: dict[str, float],
+    global_unlock_age_by_method: dict[str, str],
+    global_unlock_age_by_building: dict[str, str],
 ) -> str:
     from eu5_building_pipeline.evaluation import format_evaluation
 
@@ -87,6 +91,10 @@ def evaluate_building_blueprint(
             blueprint_path,
             config,
             price_by_good=price_by_good,
+            raw_material_goods=raw_material_goods,
+            script_values=script_values,
+            global_unlock_age_by_method=global_unlock_age_by_method,
+            global_unlock_age_by_building=global_unlock_age_by_building,
         )
     )
 
@@ -96,13 +104,29 @@ def evaluate_building_blueprint_data(
     config: OrchestratorConfig,
     *,
     price_by_good: dict[str, float],
+    raw_material_goods: set[str],
+    script_values: dict[str, float],
+    global_unlock_age_by_method: dict[str, str],
+    global_unlock_age_by_building: dict[str, str],
 ):
     from eu5_building_pipeline.evaluation import evaluate_template_file
 
     return evaluate_template_file(
         blueprint_path,
         price_by_good=price_by_good,
+        raw_material_goods=raw_material_goods,
+        global_unlock_age_by_method=global_unlock_age_by_method,
+        global_unlock_age_by_building=global_unlock_age_by_building,
+        global_config=_pipeline_evaluation_config(config, script_values),
     )
+
+
+def _pipeline_evaluation_config(config: OrchestratorConfig, script_values: dict[str, float]) -> dict:
+    pipeline_config = config.blueprint_evaluation.to_pipeline_config()
+    constants = dict(script_values)
+    constants.update(pipeline_config.get("employment_size_constants", {}))
+    pipeline_config["employment_size_constants"] = constants
+    return pipeline_config
 
 
 def plan_building_text_outputs(

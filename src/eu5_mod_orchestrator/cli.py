@@ -11,6 +11,7 @@ from eu5_mod_orchestrator.workflow import (
     analyze as run_analyze,
     build as run_build,
     deploy as run_deploy,
+    evaluate_blueprint_good as run_evaluate_blueprint_good,
     evaluate_blueprints as run_evaluate_blueprints,
     inspect_project,
     label as run_label,
@@ -232,6 +233,17 @@ def blueprint_evaluate(
     if output_format not in {"text", "json"}:
         raise typer.BadParameter("format must be text or json")
     typer.echo(run_evaluate_blueprints(_config(project), output_format=output_format, building=building))
+
+
+@blueprint_app.command("good")
+def blueprint_good(
+    project: Annotated[Path, typer.Option("--project", "-p", help="Project TOML config.")],
+    good: Annotated[str, typer.Option("--good", help="Evaluate production methods that produce this trade good.")],
+    output_format: Annotated[str, typer.Option("--format", help="Output format: text or json.")] = "text",
+) -> None:
+    if output_format not in {"text", "json"}:
+        raise typer.BadParameter("format must be text or json")
+    typer.echo(run_evaluate_blueprint_good(_config(project), good=good, output_format=output_format))
 
 
 @blueprint_app.command("parity")

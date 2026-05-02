@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tempfile
 import tomllib
 
@@ -75,6 +76,108 @@ def load_balance_prices(
         for row in goods_data.goods.to_dicts()
         if row["default_market_price"] is not None
     }
+
+
+def load_raw_material_goods(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+) -> set[str]:
+    from eu5gameparser.domain.goods import load_goods_data
+
+    kwargs = {"profile": profile}
+    if load_order_path is not None:
+        kwargs["load_order_path"] = load_order_path
+    goods_data = load_goods_data(**kwargs)
+    return raw_material_goods_from_rows(goods_data.goods.to_dicts())
+
+
+def raw_material_goods_from_rows(rows: list[dict]) -> set[str]:
+    return {str(row["name"]) for row in rows if row.get("category") == "raw_material"}
+
+
+def load_script_values(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+) -> dict[str, float]:
+    if load_order_path is None:
+        return {}
+    raw = tomllib.loads(load_order_path.read_text(encoding="utf-8"))
+    layer_roots = _profile_layer_roots(raw, profile, load_order_path.parent)
+    values: dict[str, float] = {}
+    for root in layer_roots:
+        for path in _script_value_files(root):
+            values.update(script_values_from_text(path.read_text(encoding="utf-8-sig")))
+    return values
+
+
+def script_values_from_text(text: str) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for match in re.finditer(
+        r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*(?:#.*)?$",
+        text,
+        flags=re.MULTILINE,
+    ):
+        values[match.group(1)] = float(match.group(2))
+    return values
+
+
+def load_global_unlock_ages(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+) -> dict[str, str]:
+    from eu5gameparser.domain.advancements import load_advancement_data
+    from eu5gameparser.domain.availability import AGE_INDEX
+
+    kwargs = {"profile": profile}
+    if load_order_path is not None:
+        kwargs["load_order_path"] = load_order_path
+    advancement_data = load_advancement_data(**kwargs)
+    return global_method_unlock_ages_from_rows(advancement_data.advancements.to_dicts(), AGE_INDEX)
+
+
+def load_global_building_unlock_ages(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+) -> dict[str, str]:
+    from eu5gameparser.domain.advancements import load_advancement_data
+    from eu5gameparser.domain.availability import AGE_INDEX
+
+    kwargs = {"profile": profile}
+    if load_order_path is not None:
+        kwargs["load_order_path"] = load_order_path
+    advancement_data = load_advancement_data(**kwargs)
+    return global_building_unlock_ages_from_rows(advancement_data.advancements.to_dicts(), AGE_INDEX)
+
+
+def global_unlock_ages_from_rows(rows: list[dict], age_index: dict[str, int]) -> dict[str, str]:
+    return global_method_unlock_ages_from_rows(rows, age_index)
+
+
+def global_method_unlock_ages_from_rows(rows: list[dict], age_index: dict[str, int]) -> dict[str, str]:
+    return _global_unlock_ages_from_rows(rows, age_index, "unlock_production_method")
+
+
+def global_building_unlock_ages_from_rows(rows: list[dict], age_index: dict[str, int]) -> dict[str, str]:
+    return _global_unlock_ages_from_rows(rows, age_index, "unlock_building")
+
+
+def _global_unlock_ages_from_rows(rows: list[dict], age_index: dict[str, int], field: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for row in rows:
+        if row.get("has_potential"):
+            continue
+        age = row.get("age")
+        if age is None:
+            continue
+        for unlocked in row.get(field) or []:
+            current = result.get(unlocked)
+            if current is None or age_index.get(age, 10_000) < age_index.get(current, 10_000):
+                result[str(unlocked)] = str(age)
+    return result
 
 
 def export_savegame(
@@ -211,6 +314,47 @@ def _temporary_load_order(load_order_path: Path, mod_id: str, mod_root: Path) ->
     with handle:
         handle.write(_toml_load_order(raw))
     return Path(handle.name)
+
+
+def _profile_layer_roots(raw: dict, profile: str, base_dir: Path) -> list[Path]:
+    paths = raw.get("paths", {})
+    vanilla_root_raw = paths.get("vanilla_root")
+    mods = {str(mod.get("id")): mod for mod in raw.get("mods", [])}
+    profiles = raw.get("profiles", {})
+    layers = profiles.get(profile)
+    if layers is None:
+        layers = ["vanilla"]
+    roots: list[Path] = []
+    for layer in layers:
+        layer_id = str(layer)
+        if layer_id == "vanilla":
+            if vanilla_root_raw:
+                roots.append(_load_order_path(base_dir, str(vanilla_root_raw)) / "game")
+            continue
+        mod = mods.get(layer_id)
+        if mod is None:
+            continue
+        roots.append(_load_order_path(base_dir, str(mod["root"])))
+    return roots
+
+
+def _script_value_files(root: Path) -> list[Path]:
+    candidates = [
+        root / "main_menu" / "common" / "script_values",
+        root / "game" / "main_menu" / "common" / "script_values",
+    ]
+    files: list[Path] = []
+    for directory in candidates:
+        if directory.exists():
+            files.extend(sorted(directory.glob("*.txt")))
+    return files
+
+
+def _load_order_path(base_dir: Path, raw: str) -> Path:
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve()
 
 
 def _toml_load_order(raw: dict) -> str:

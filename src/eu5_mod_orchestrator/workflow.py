@@ -19,6 +19,10 @@ from eu5_mod_orchestrator.adapters.parser import (
     export_parser_facts,
     export_savegame,
     load_balance_prices,
+    load_global_building_unlock_ages,
+    load_global_unlock_ages,
+    load_raw_material_goods,
+    load_script_values,
     validate_generated_mod,
 )
 from eu5_mod_orchestrator.adapters.population_capacity import (
@@ -240,6 +244,22 @@ def evaluate_blueprints(
             profile=config.profile,
             load_order_path=config.load_order_path,
         )
+        global_unlock_age_by_method = load_global_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        global_unlock_age_by_building = load_global_building_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        raw_material_goods = load_raw_material_goods(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        script_values = load_script_values(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
     except ModuleNotFoundError as exc:
         return f"parser package is not installed in this environment: {exc.name}"
 
@@ -257,6 +277,10 @@ def evaluate_blueprints(
                             blueprint,
                             config,
                             price_by_good=price_by_good,
+                            raw_material_goods=raw_material_goods,
+                            script_values=script_values,
+                            global_unlock_age_by_method=global_unlock_age_by_method,
+                            global_unlock_age_by_building=global_unlock_age_by_building,
                         )
                     )
                 )
@@ -266,6 +290,10 @@ def evaluate_blueprints(
                         blueprint,
                         config,
                         price_by_good=price_by_good,
+                        raw_material_goods=raw_material_goods,
+                        script_values=script_values,
+                        global_unlock_age_by_method=global_unlock_age_by_method,
+                        global_unlock_age_by_building=global_unlock_age_by_building,
                     )
                 )
         except ModuleNotFoundError as exc:
@@ -273,6 +301,69 @@ def evaluate_blueprints(
     if output_format == "json":
         return json.dumps(evaluations, indent=2, sort_keys=True)
     return "\n\n".join(summaries)
+
+
+def evaluate_blueprint_good(
+    config: OrchestratorConfig,
+    *,
+    good: str,
+    output_format: str = "text",
+) -> str:
+    ensure_artifact_dirs(config)
+    blueprints = _blueprint_files(config)
+    if not blueprints:
+        return f"no accepted blueprints found in {config.accepted_blueprints_dir}"
+    try:
+        price_by_good = load_balance_prices(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        global_unlock_age_by_method = load_global_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        global_unlock_age_by_building = load_global_building_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        raw_material_goods = load_raw_material_goods(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        script_values = load_script_values(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+    except ModuleNotFoundError as exc:
+        return f"parser package is not installed in this environment: {exc.name}"
+
+    evaluations = []
+    for blueprint in blueprints:
+        validate_blueprint_file(blueprint)
+        try:
+            evaluation = evaluate_building_blueprint_data(
+                blueprint,
+                config,
+                price_by_good=price_by_good,
+                raw_material_goods=raw_material_goods,
+                script_values=script_values,
+                global_unlock_age_by_method=global_unlock_age_by_method,
+                global_unlock_age_by_building=global_unlock_age_by_building,
+            )
+            if any(method.produced == good for method in evaluation.methods):
+                evaluations.append(evaluation)
+        except ModuleNotFoundError as exc:
+            return f"building pipeline package is not installed: {exc.name}"
+
+    if not evaluations:
+        return f"no accepted blueprint methods produced {good!r}"
+    if output_format == "json":
+        from eu5_building_pipeline.evaluation import good_evaluation_to_json
+
+        return good_evaluation_to_json(good, tuple(evaluations))
+    from eu5_building_pipeline.evaluation import format_good_evaluation
+
+    return format_good_evaluation(good, tuple(evaluations))
 
 
 def validate(config: OrchestratorConfig) -> str:

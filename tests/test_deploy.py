@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -50,6 +51,38 @@ def test_deploy_copies_nested_files(tmp_path: Path) -> None:
     target_file = config.deploy_target / "main_menu" / "localization" / "english" / "foundations.yml"
     assert target_file.read_text(encoding="utf-8") == "l_english:\n"
     assert result.copied == [target_file]
+
+
+def test_deploy_skips_unchanged_files(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    source_file = config.mod_root / "main_menu" / "localization" / "english" / "foundations.yml"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("l_english:\n", encoding="utf-8")
+    target_file = config.deploy_target / "main_menu" / "localization" / "english" / "foundations.yml"
+    target_file.parent.mkdir(parents=True)
+    shutil.copy2(source_file, target_file)
+
+    result = deploy(config)
+
+    assert result.planned_copies == []
+    assert result.copied == []
+    assert result.skipped == [target_file]
+
+
+def test_deploy_force_copies_unchanged_files(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    source_file = config.mod_root / "main_menu" / "localization" / "english" / "foundations.yml"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("l_english:\n", encoding="utf-8")
+    target_file = config.deploy_target / "main_menu" / "localization" / "english" / "foundations.yml"
+    target_file.parent.mkdir(parents=True)
+    shutil.copy2(source_file, target_file)
+
+    result = deploy(config, force=True)
+
+    assert result.planned_copies == [target_file]
+    assert result.copied == [target_file]
+    assert result.skipped == []
 
 
 def test_deploy_creates_target_when_source_is_empty(tmp_path: Path) -> None:

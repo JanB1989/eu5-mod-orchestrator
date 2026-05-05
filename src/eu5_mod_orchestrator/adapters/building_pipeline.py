@@ -52,14 +52,15 @@ def render_building_blueprint(
         output_path = _text_output_path(target_root, config.building_outputs, text.kind, bundle.tag, bundle.key)
         result.planned.append(output_path)
         if not dry_run:
-            _write_managed_text(
+            wrote_text = _write_managed_text(
                 output_path,
                 text.content,
                 marker=f"eu5-building-pipeline:{bundle.key}:{text.kind}",
                 localization=text.kind == "localization",
                 overwrite=overwrite,
             )
-            result.written.append(output_path)
+            if wrote_text:
+                result.written.append(output_path)
 
     if bundle.icon is not None:
         icon_path = target_root / config.building_outputs.icons / bundle.icon.output_dds
@@ -179,13 +180,17 @@ def _write_managed_text(
     marker: str,
     localization: bool,
     overwrite: bool,
-) -> None:
+) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    exists = path.exists()
+    existing = path.read_text(encoding="utf-8-sig") if exists else ""
     updated = _upsert_managed_block(existing, content, marker, localization=localization, overwrite=overwrite)
+    if exists and updated == existing and path.read_bytes().startswith(BOM):
+        return False
     path.write_text(updated, encoding="utf-8-sig", newline="\n")
     if not path.read_bytes().startswith(BOM):
         raise RuntimeError(f"Generated text file is missing UTF-8 BOM: {path}")
+    return True
 
 
 def _upsert_managed_block(

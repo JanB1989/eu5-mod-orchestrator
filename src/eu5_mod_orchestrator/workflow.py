@@ -414,8 +414,14 @@ def parity(config: OrchestratorConfig, *, mod_id: str = "constructor") -> str:
     return "parity passed"
 
 
-def deploy(config: OrchestratorConfig, *, dry_run: bool = False, clean: bool = False) -> str:
-    return deploy_mod(config, dry_run=dry_run, clean=clean).summary()
+def deploy(
+    config: OrchestratorConfig,
+    *,
+    dry_run: bool = False,
+    clean: bool = False,
+    force: bool = False,
+) -> str:
+    return deploy_mod(config, dry_run=dry_run, clean=clean, force=force).summary()
 
 
 def build(

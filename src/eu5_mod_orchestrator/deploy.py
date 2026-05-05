@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import filecmp
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ class DeployResult:
     target: Path
     copied: list[Path] = field(default_factory=list)
     deleted: list[Path] = field(default_factory=list)
+    skipped: list[Path] = field(default_factory=list)
     planned_copies: list[Path] = field(default_factory=list)
     planned_deletes: list[Path] = field(default_factory=list)
     dry_run: bool = False
@@ -39,12 +41,20 @@ class DeployResult:
         if self.deleted:
             lines.append("Deleted:")
             lines.extend(f"  {path}" for path in self.deleted)
+        if self.skipped:
+            lines.append(f"Skipped unchanged: {len(self.skipped)}")
         if not self.planned_copies and not self.planned_deletes and not self.copied and not self.deleted:
             lines.append("No file changes needed.")
         return "\n".join(lines)
 
 
-def deploy(config: OrchestratorConfig, *, dry_run: bool = False, clean: bool = False) -> DeployResult:
+def deploy(
+    config: OrchestratorConfig,
+    *,
+    dry_run: bool = False,
+    clean: bool = False,
+    force: bool = False,
+) -> DeployResult:
     if config.deploy_target is None:
         raise DeployError("deploy.target is not configured.")
 
@@ -78,6 +88,9 @@ def deploy(config: OrchestratorConfig, *, dry_run: bool = False, clean: bool = F
 
     for source_file in source_files:
         target_file = target / source_file.relative_to(source)
+        if not force and _files_match(source_file, target_file):
+            result.skipped.append(target_file)
+            continue
         result.planned_copies.append(target_file)
         if dry_run:
             continue
@@ -103,6 +116,18 @@ def _stale_targets(source_files: list[Path], source: Path, target: Path) -> list
         return []
     expected = {target / source_file.relative_to(source) for source_file in source_files}
     return sorted(path for path in target.rglob("*") if path.is_file() and path not in expected)
+
+
+def _files_match(source: Path, target: Path) -> bool:
+    if not target.is_file():
+        return False
+    source_stat = source.stat()
+    target_stat = target.stat()
+    if source_stat.st_size != target_stat.st_size:
+        return False
+    if int(source_stat.st_mtime) == int(target_stat.st_mtime):
+        return True
+    return filecmp.cmp(source, target, shallow=False)
 
 
 def _validate_clean_target(config: OrchestratorConfig, target: Path) -> None:

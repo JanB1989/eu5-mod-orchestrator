@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from PIL import Image, ImageDraw
 
@@ -106,6 +107,21 @@ def test_render_building_blueprint_writes_managed_blocks_and_bom(tmp_path: Path)
     assert updated.count("# >>> eu5-building-pipeline:test_building:building") == 1
     assert localization_path.read_bytes().startswith(BOM)
     assert localization_path.read_text(encoding="utf-8-sig").startswith("l_english:")
+
+
+def test_render_building_blueprint_preserves_unchanged_text_mtime(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    blueprint = _blueprint(tmp_path)
+    building_path = config.mod_root / "in_game" / "common" / "building_types" / "zz_foundation_test.txt"
+
+    render_building_blueprint(blueprint, config, dry_run=False, overwrite=False, refresh_assets=False)
+    fixed_time = 1_700_000_000_000_000_000
+    os.utime(building_path, ns=(fixed_time, fixed_time))
+
+    summary = render_building_blueprint(blueprint, config, dry_run=False, overwrite=False, refresh_assets=False)
+
+    assert building_path.stat().st_mtime_ns == fixed_time
+    assert "Written:" not in summary
 
 
 def test_render_building_blueprint_preserves_icon_unless_refreshed(tmp_path: Path) -> None:

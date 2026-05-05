@@ -200,8 +200,9 @@ def deploy(
         bool,
         typer.Option(help="Delete deployed files that are no longer present in the built mod."),
     ] = False,
+    force: Annotated[bool, typer.Option(help="Copy all source files even when target files look unchanged.")] = False,
 ) -> None:
-    typer.echo(run_deploy(_config(project), dry_run=dry_run, clean=clean))
+    typer.echo(run_deploy(_config(project), dry_run=dry_run, clean=clean, force=force))
 
 
 @app.command()

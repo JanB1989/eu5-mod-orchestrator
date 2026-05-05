@@ -29,6 +29,11 @@ def run_labeling_pipeline(
         modifier_prefix=config.labeling.modifier_prefix,
         generated_label=config.labeling.generated_label,
         managed_write_mode=config.labeling.managed_write_mode,
+        population_capacity_config_path=(
+            config.population_capacity.config_path
+            if config.population_capacity is not None and config.population_capacity.enabled
+            else injector_config.population_capacity_config_path
+        ),
     )
     goods_filter = _goods_filter(goods)
     exit_code = run_mod_injector(

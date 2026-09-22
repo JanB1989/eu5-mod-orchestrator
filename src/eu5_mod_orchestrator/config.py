@@ -39,6 +39,16 @@ class PopulationCapacityConfig:
 
 
 @dataclass(frozen=True)
+class ModifierCategoryEvaluationConfig:
+    modifiers: tuple[str, ...]
+
+    def to_pipeline_config(self) -> dict[str, Any]:
+        return {
+            "modifiers": list(self.modifiers),
+        }
+
+
+@dataclass(frozen=True)
 class BlueprintEvaluationConfig:
     raw_input_efficiency_per_good: float
     profit_percent_min: float
@@ -51,6 +61,7 @@ class BlueprintEvaluationConfig:
     amortization_months_min: float | None
     amortization_months_max: float | None
     employment_size_constants: dict[str, float]
+    modifier_categories: dict[str, ModifierCategoryEvaluationConfig]
 
     @property
     def roi_cycles_max(self) -> float | None:
@@ -70,6 +81,10 @@ class BlueprintEvaluationConfig:
             "amortization_months_max": self.amortization_months_max,
             "roi_cycles_max": self.amortization_months_max,
             "employment_size_constants": dict(self.employment_size_constants),
+            "modifier_categories": {
+                category: category_config.to_pipeline_config()
+                for category, category_config in self.modifier_categories.items()
+            },
         }
 
 
@@ -209,6 +224,7 @@ def _blueprint_evaluation_config(value: Any) -> BlueprintEvaluationConfig:
             "blueprint_evaluation.employment_size_constants",
         ).items()
     }
+    modifier_categories = _modifier_category_evaluation_configs(raw.get("modifier_categories", {}))
     return BlueprintEvaluationConfig(
         raw_input_efficiency_per_good=_optional_float(raw, "raw_input_efficiency_per_good", 0.05),
         profit_percent_min=_optional_float(raw, "profit_percent_min", -0.30),
@@ -231,7 +247,35 @@ def _blueprint_evaluation_config(value: Any) -> BlueprintEvaluationConfig:
             default=None,
         ),
         employment_size_constants=constants,
+        modifier_categories=modifier_categories,
     )
+
+
+def _modifier_category_evaluation_configs(value: Any) -> dict[str, ModifierCategoryEvaluationConfig]:
+    raw_categories = _mapping(value, "blueprint_evaluation.modifier_categories")
+    categories: dict[str, ModifierCategoryEvaluationConfig] = {}
+    for category, raw_category in raw_categories.items():
+        category_name = str(category)
+        category_data = _mapping(raw_category, f"blueprint_evaluation.modifier_categories.{category_name}")
+        modifiers = _modifier_names(
+            category_data.get("modifiers", []),
+            f"blueprint_evaluation.modifier_categories.{category_name}.modifiers",
+        )
+        categories[category_name] = ModifierCategoryEvaluationConfig(
+            modifiers=modifiers,
+        )
+    return categories
+
+
+def _modifier_names(value: Any, name: str) -> tuple[str, ...]:
+    if isinstance(value, list | tuple):
+        result = tuple(item for item in value if isinstance(item, str) and item.strip())
+        if len(result) != len(value):
+            raise ConfigError(f"{name} must be a list of non-empty strings.")
+        return result
+    if isinstance(value, dict):
+        return tuple(str(key) for key in value)
+    raise ConfigError(f"{name} must be a list of modifier names.")
 
 
 def _labeling_config(root: Path, value: Any) -> LabelingConfig | None:
@@ -338,6 +382,10 @@ def _optional_alias_float(
 
 def _path(root: Path, raw: str) -> Path:
     path = Path(raw)
-    if path.is_absolute():
+    if path.is_absolute() or _is_windows_absolute_path(raw):
         return path
     return (root / path).resolve()
+
+
+def _is_windows_absolute_path(raw: str) -> bool:
+    return len(raw) >= 3 and raw[0].isalpha() and raw[1] == ":" and raw[2] in {"/", "\\"}

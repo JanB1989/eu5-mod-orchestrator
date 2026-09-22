@@ -50,6 +50,7 @@ parser = "../eu5-game-parser"
     assert config.parser_artifact_dir == config.building_artifact_dir
     assert config.labeling is None
     assert config.blueprint_evaluation.raw_input_efficiency_per_good == 0.05
+    assert config.blueprint_evaluation.modifier_categories == {}
 
 
 def test_load_project_config_accepts_labeling_config(tmp_path: Path) -> None:
@@ -136,6 +137,9 @@ burghers = 2.6
 [blueprint_evaluation.employment_size_constants]
 rural_peasant_produce_employment = 3
 guild_employment = 4
+
+[blueprint_evaluation.modifier_categories.infrastructure_category]
+modifiers = ["local_market_access", "free_building_levels"]
 """.strip(),
         encoding="utf-8",
     )
@@ -157,6 +161,11 @@ guild_employment = 4
     assert evaluation.to_pipeline_config()["amortization_months_min"] == 40
     assert evaluation.to_pipeline_config()["amortization_months_max"] == 80
     assert evaluation.employment_size_constants["guild_employment"] == 4
+    infrastructure = evaluation.modifier_categories["infrastructure_category"]
+    assert infrastructure.modifiers == ("local_market_access", "free_building_levels")
+    assert evaluation.to_pipeline_config()["modifier_categories"]["infrastructure_category"] == {
+        "modifiers": ["local_market_access", "free_building_levels"],
+    }
 
 
 def test_load_project_config_accepts_legacy_roi_cycles_alias(tmp_path: Path) -> None:

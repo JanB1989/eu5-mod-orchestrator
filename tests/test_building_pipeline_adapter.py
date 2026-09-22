@@ -35,16 +35,24 @@ def _transparent_png(path: Path) -> None:
     image.save(path)
 
 
-def _blueprint(tmp_path: Path, *, icon_name: str = "test_building.dds", icon_line: str = "icon = test_building") -> Path:
+def _blueprint(
+    tmp_path: Path,
+    *,
+    icon_name: str = "test_building.dds",
+    icon_line: str = "icon = test_building",
+    output_tag: str | None = None,
+) -> Path:
     assets = tmp_path / "blueprints" / "accepted" / "assets" / "icons"
     assets.mkdir(parents=True, exist_ok=True)
     icon_path = assets / "test_building.png"
     _transparent_png(icon_path)
     blueprint = tmp_path / "blueprints" / "accepted" / "buildings" / "test_building.yml"
     blueprint.parent.mkdir(parents=True, exist_ok=True)
+    output_tag_line = f"output_tag: {output_tag}\n" if output_tag is not None else ""
     blueprint.write_text(
         f"""
 tag: test
+{output_tag_line}
 
 building:
   key: test_building
@@ -85,6 +93,18 @@ def test_render_building_blueprint_uses_project_layout_for_dry_run(tmp_path: Pat
     assert str(config.mod_root / "main_menu" / "localization" / "english" / "zz_foundation_test_l_english.yml") in summary
     assert str(config.mod_root / "in_game" / "gfx" / "interface" / "icons" / "buildings" / "test_building.dds") in summary
     assert not config.mod_root.exists()
+
+
+def test_render_building_blueprint_uses_output_tag_for_text_paths(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    blueprint = _blueprint(tmp_path, output_tag="test_after_dependency")
+
+    summary = render_building_blueprint(blueprint, config, dry_run=True, overwrite=False, refresh_assets=False)
+
+    assert str(config.mod_root / "in_game" / "common" / "building_types" / "zz_foundation_test_after_dependency.txt") in summary
+    assert str(config.mod_root / "in_game" / "common" / "prices" / "zz_foundation_test_after_dependency.txt") in summary
+    assert str(config.mod_root / "main_menu" / "localization" / "english" / "zz_foundation_test_after_dependency_l_english.yml") in summary
+    assert str(config.mod_root / "in_game" / "common" / "building_types" / "zz_foundation_test.txt") not in summary
 
 
 def test_render_building_blueprint_writes_managed_blocks_and_bom(tmp_path: Path) -> None:

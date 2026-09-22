@@ -12,6 +12,7 @@ from eu5_mod_orchestrator.workflow import (
     build as run_build,
     deploy as run_deploy,
     evaluate_blueprint_good as run_evaluate_blueprint_good,
+    evaluate_blueprint_ratios as run_evaluate_blueprint_ratios,
     evaluate_blueprints as run_evaluate_blueprints,
     inspect_project,
     label as run_label,
@@ -245,6 +246,17 @@ def blueprint_good(
     if output_format not in {"text", "json"}:
         raise typer.BadParameter("format must be text or json")
     typer.echo(run_evaluate_blueprint_good(_config(project), good=good, output_format=output_format))
+
+
+@blueprint_app.command("ratios")
+def blueprint_ratios(
+    project: Annotated[Path, typer.Option("--project", "-p", help="Project TOML config.")],
+    building: Annotated[
+        str | None,
+        typer.Argument(help="Optional building key, blueprint tag, custom tag, or filename stem."),
+    ] = None,
+) -> None:
+    typer.echo(run_evaluate_blueprint_ratios(_config(project), building=building))
 
 
 @blueprint_app.command("parity")

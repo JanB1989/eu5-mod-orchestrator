@@ -21,6 +21,7 @@ from eu5_mod_orchestrator.adapters.parser import (
     load_balance_prices,
     load_global_building_unlock_ages,
     load_global_unlock_ages,
+    load_food_cost_context,
     load_raw_material_goods,
     load_script_values,
     validate_generated_mod,
@@ -260,7 +261,13 @@ def evaluate_blueprints(
             profile=config.profile,
             load_order_path=config.load_order_path,
         )
+        food_cost_context = load_food_cost_context(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
     except ModuleNotFoundError as exc:
+        if exc.name == "eu5_building_pipeline":
+            return f"building pipeline package is not installed in this environment: {exc.name}"
         return f"parser package is not installed in this environment: {exc.name}"
 
     summaries: list[str] = []
@@ -281,6 +288,7 @@ def evaluate_blueprints(
                             script_values=script_values,
                             global_unlock_age_by_method=global_unlock_age_by_method,
                             global_unlock_age_by_building=global_unlock_age_by_building,
+                            food_cost_context=food_cost_context,
                         )
                     )
                 )
@@ -294,6 +302,7 @@ def evaluate_blueprints(
                         script_values=script_values,
                         global_unlock_age_by_method=global_unlock_age_by_method,
                         global_unlock_age_by_building=global_unlock_age_by_building,
+                        food_cost_context=food_cost_context,
                     )
                 )
         except ModuleNotFoundError as exc:
@@ -334,7 +343,13 @@ def evaluate_blueprint_good(
             profile=config.profile,
             load_order_path=config.load_order_path,
         )
+        food_cost_context = load_food_cost_context(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
     except ModuleNotFoundError as exc:
+        if exc.name == "eu5_building_pipeline":
+            return f"building pipeline package is not installed in this environment: {exc.name}"
         return f"parser package is not installed in this environment: {exc.name}"
 
     evaluations = []
@@ -349,6 +364,7 @@ def evaluate_blueprint_good(
                 script_values=script_values,
                 global_unlock_age_by_method=global_unlock_age_by_method,
                 global_unlock_age_by_building=global_unlock_age_by_building,
+                food_cost_context=food_cost_context,
             )
             if any(method.produced == good for method in evaluation.methods):
                 evaluations.append(evaluation)
@@ -364,6 +380,73 @@ def evaluate_blueprint_good(
     from eu5_building_pipeline.evaluation import format_good_evaluation
 
     return format_good_evaluation(good, tuple(evaluations))
+
+
+def evaluate_blueprint_ratios(
+    config: OrchestratorConfig,
+    *,
+    building: str | None = None,
+) -> str:
+    ensure_artifact_dirs(config)
+    blueprints = _blueprint_files(config)
+    if not blueprints:
+        return f"no accepted blueprints found in {config.accepted_blueprints_dir}"
+    if building is not None:
+        blueprints = _filter_blueprints(blueprints, building)
+        if not blueprints:
+            return f"no accepted blueprints matched {building!r}"
+    try:
+        price_by_good = load_balance_prices(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        global_unlock_age_by_method = load_global_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        global_unlock_age_by_building = load_global_building_unlock_ages(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        raw_material_goods = load_raw_material_goods(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        script_values = load_script_values(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+        food_cost_context = load_food_cost_context(
+            profile=config.profile,
+            load_order_path=config.load_order_path,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name == "eu5_building_pipeline":
+            return f"building pipeline package is not installed in this environment: {exc.name}"
+        return f"parser package is not installed in this environment: {exc.name}"
+
+    evaluations = []
+    for blueprint in blueprints:
+        validate_blueprint_file(blueprint)
+        try:
+            evaluations.append(
+                evaluate_building_blueprint_data(
+                    blueprint,
+                    config,
+                    price_by_good=price_by_good,
+                    raw_material_goods=raw_material_goods,
+                    script_values=script_values,
+                    global_unlock_age_by_method=global_unlock_age_by_method,
+                    global_unlock_age_by_building=global_unlock_age_by_building,
+                    food_cost_context=food_cost_context,
+                )
+            )
+        except ModuleNotFoundError as exc:
+            return f"building pipeline package is not installed: {exc.name}"
+
+    from eu5_building_pipeline.evaluation import format_modifier_ratio_evaluation
+
+    return format_modifier_ratio_evaluation(tuple(evaluations))
 
 
 def validate(config: OrchestratorConfig) -> str:
@@ -452,10 +535,35 @@ def _filter_blueprints(blueprints: list[Path], building: str) -> list[Path]:
     for blueprint in blueprints:
         raw = validate_blueprint_file(blueprint)
         raw_building = raw["building"]
-        candidates = {blueprint.stem, str(raw.get("tag", "")), str(raw_building.get("key", ""))}
+        candidates = {
+            blueprint.stem,
+            str(raw.get("tag", "")),
+            str(raw_building.get("key", "")),
+            *_building_custom_tags(raw_building, blueprint),
+        }
         if building in candidates:
             matches.append(blueprint)
     return matches
+
+
+def _building_custom_tags(raw_building: dict, path: Path) -> tuple[str, ...]:
+    body = raw_building.get("body")
+    key = raw_building.get("key")
+    if not isinstance(body, str) or not isinstance(key, str):
+        return ()
+
+    from eu5gameparser.clausewitz.parser import parse_text
+    from eu5gameparser.clausewitz.syntax import CList
+
+    document = parse_text(f"{key} = {{\n{body}\n}}\n", path)
+    if not document.entries or not isinstance(document.entries[0].value, CList):
+        return ()
+    block = document.entries[0].value
+    tags: list[str] = []
+    for value in block.values("custom_tags"):
+        if isinstance(value, CList):
+            tags.extend(str(item) for item in value.items)
+    return tuple(tags)
 
 
 def _render_blueprints(

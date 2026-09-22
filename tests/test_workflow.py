@@ -1,12 +1,17 @@
 import json
 from pathlib import Path
 
-from eu5_building_pipeline.evaluation import BlueprintEvaluation, EvaluatedProductionMethod
+from eu5_building_pipeline.evaluation import (
+    BlueprintEvaluation,
+    EvaluatedBuildingModifier,
+    EvaluatedProductionMethod,
+)
 from eu5_mod_orchestrator.config import load_project_config
 from eu5_mod_orchestrator import workflow
 from eu5_mod_orchestrator.workflow import (
     build,
     evaluate_blueprint_good,
+    evaluate_blueprint_ratios,
     evaluate_blueprints,
     label,
     population_capacity_effects,
@@ -76,18 +81,27 @@ managed_write_mode = "mod_root"
     return load_project_config(config_path)
 
 
-def _blueprint(tmp_path: Path) -> Path:
+def _blueprint(
+    tmp_path: Path,
+    *,
+    output_tag: str | None = None,
+    custom_tags: tuple[str, ...] = (),
+) -> Path:
     blueprint = tmp_path / "blueprints" / "accepted" / "buildings" / "test_building.yml"
     blueprint.parent.mkdir(parents=True, exist_ok=True)
+    output_tag_line = f"output_tag: {output_tag}\n" if output_tag is not None else ""
+    custom_tags_line = f"    custom_tags = {{ {' '.join(custom_tags)} }}\n" if custom_tags else ""
     blueprint.write_text(
-        """
+        f"""
 version: 2
 tag: test
+{output_tag_line}
 building:
   key: test_building
   mode: REPLACE
   body: |
     is_foreign = no
+{custom_tags_line.rstrip()}
 localization:
   entries:
     test_building: Test Building
@@ -97,20 +111,32 @@ localization:
     return blueprint
 
 
-def _evaluated_method(name: str, produced: str | None) -> EvaluatedProductionMethod:
+def _evaluated_method(
+    name: str,
+    produced: str | None,
+    *,
+    building: str = "test_building",
+    building_category: str | None = None,
+    employment_size: float | None = None,
+    building_cost_gold: float | None = None,
+    building_modifiers: tuple[EvaluatedBuildingModifier, ...] = (),
+    input_gold: float = 0.0,
+) -> EvaluatedProductionMethod:
     return EvaluatedProductionMethod(
         name=name,
-        building="test_building",
+        building=building,
         global_unlock_age=None,
         produced=produced,
         output=1.0,
         inputs=(),
         production_efficiency=1.0,
         building_pop_type=None,
-        employment_size=None,
-        building_cost_gold=None,
+        building_category=building_category,
+        employment_size=employment_size,
+        building_cost_gold=building_cost_gold,
+        building_modifiers=building_modifiers,
         raw_material_input_count=0,
-        input_gold=0.0,
+        input_gold=input_gold,
         output_gold=1.0,
         profit_gold=1.0,
         profit_percent=None,
@@ -148,6 +174,7 @@ def _stub_evaluation_inputs(monkeypatch) -> None:
     monkeypatch.setattr(workflow, "load_global_building_unlock_ages", lambda profile, load_order_path: {})
     monkeypatch.setattr(workflow, "load_raw_material_goods", lambda profile, load_order_path: set())
     monkeypatch.setattr(workflow, "load_script_values", lambda profile, load_order_path: {})
+    monkeypatch.setattr(workflow, "load_food_cost_context", lambda profile, load_order_path: None)
 
 
 def test_render_removes_stale_managed_outputs_after_prefix_change(tmp_path: Path) -> None:
@@ -167,6 +194,28 @@ test_building = {}
     summary = render(config, dry_run=False, overwrite=True, refresh_assets=False)
 
     current_path = config.mod_root / "in_game" / "common" / "building_types" / "pp_test.txt"
+    assert "stale managed building output cleanup complete." in summary
+    assert not stale_path.exists()
+    assert current_path.exists()
+
+
+def test_render_removes_stale_managed_outputs_after_output_tag_change(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _blueprint(tmp_path, output_tag="test_after_dependency")
+    stale_path = config.mod_root / "in_game" / "common" / "building_types" / "pp_test.txt"
+    stale_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_path.write_text(
+        """
+# >>> eu5-building-pipeline:test_building:building
+test_building = {}
+# <<< eu5-building-pipeline:test_building:building
+""".lstrip(),
+        encoding="utf-8-sig",
+    )
+
+    summary = render(config, dry_run=False, overwrite=True, refresh_assets=False)
+
+    current_path = config.mod_root / "in_game" / "common" / "building_types" / "pp_test_after_dependency.txt"
     assert "stale managed building output cleanup complete." in summary
     assert not stale_path.exists()
     assert current_path.exists()
@@ -273,6 +322,7 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
     config = _config(tmp_path)
     blueprint = _blueprint(tmp_path)
     calls = []
+    food_cost_context = object()
 
     monkeypatch.setattr(
         workflow,
@@ -299,6 +349,11 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
         "load_script_values",
         lambda profile, load_order_path: {"rural_peasant_produce_employment": 1.0},
     )
+    monkeypatch.setattr(
+        workflow,
+        "load_food_cost_context",
+        lambda profile, load_order_path: food_cost_context,
+    )
 
     def fake_evaluate(
         blueprint_arg,
@@ -309,6 +364,7 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
         script_values,
         global_unlock_age_by_method,
         global_unlock_age_by_building,
+        food_cost_context,
     ):
         calls.append(
             (
@@ -319,6 +375,7 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
                 script_values,
                 global_unlock_age_by_method,
                 global_unlock_age_by_building,
+                food_cost_context,
             )
         )
         return "fake evaluation"
@@ -335,6 +392,7 @@ def test_evaluate_blueprints_uses_parser_balance_inputs(tmp_path: Path, monkeypa
             {"rural_peasant_produce_employment": 1.0},
             {"pp_method": "age_2_renaissance"},
             {"test_building": "age_2_renaissance"},
+            food_cost_context,
         )
     ]
 
@@ -368,6 +426,11 @@ def test_evaluate_blueprints_can_emit_json(tmp_path: Path, monkeypatch) -> None:
         "load_script_values",
         lambda profile, load_order_path: {},
     )
+    monkeypatch.setattr(
+        workflow,
+        "load_food_cost_context",
+        lambda profile, load_order_path: None,
+    )
 
     class FakeEvaluation:
         tag = "test"
@@ -380,7 +443,7 @@ def test_evaluate_blueprints_can_emit_json(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         workflow,
         "evaluate_building_blueprint_data",
-        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: FakeEvaluation(),
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building, food_cost_context: FakeEvaluation(),
     )
 
     assert json.loads(evaluate_blueprints(config, output_format="json")) == [
@@ -439,8 +502,13 @@ building:
     )
     monkeypatch.setattr(
         workflow,
+        "load_food_cost_context",
+        lambda profile, load_order_path: None,
+    )
+    monkeypatch.setattr(
+        workflow,
         "evaluate_building_blueprint",
-        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: calls.append(blueprint_arg)
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building, food_cost_context: calls.append(blueprint_arg)
         or "fake evaluation",
     )
 
@@ -455,7 +523,7 @@ def test_evaluate_blueprint_good_outputs_single_text_report(tmp_path: Path, monk
     monkeypatch.setattr(
         workflow,
         "evaluate_building_blueprint_data",
-        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: _evaluation(
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building, food_cost_context: _evaluation(
             methods=(
                 _evaluated_method("coal_method", "coal"),
                 _evaluated_method("tools_method", "tools"),
@@ -496,6 +564,7 @@ building:
         script_values,
         global_unlock_age_by_method,
         global_unlock_age_by_building,
+        food_cost_context,
     ):
         if blueprint_arg == other:
             return _evaluation(tag="other", building="other_building", methods=(_evaluated_method("tools_method", "tools"),))
@@ -522,12 +591,104 @@ def test_evaluate_blueprint_good_reports_when_good_has_no_matches(tmp_path: Path
     monkeypatch.setattr(
         workflow,
         "evaluate_building_blueprint_data",
-        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building: _evaluation(
+        lambda blueprint_arg, config_arg, price_by_good, raw_material_goods, script_values, global_unlock_age_by_method, global_unlock_age_by_building, food_cost_context: _evaluation(
             methods=(_evaluated_method("tools_method", "tools"),)
         ),
     )
 
     assert evaluate_blueprint_good(config, good="coal") == "no accepted blueprint methods produced 'coal'"
+
+
+def test_evaluate_blueprint_ratios_filters_and_outputs_combined_table(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    blueprint = _blueprint(tmp_path, custom_tags=("pp_test_ratios",))
+    other = tmp_path / "blueprints" / "accepted" / "buildings" / "other_building.yml"
+    other.write_text(
+        """
+version: 2
+tag: other
+building:
+  key: other_building
+  body: |
+    is_foreign = no
+""".strip(),
+        encoding="utf-8",
+    )
+    _stub_evaluation_inputs(monkeypatch)
+
+    def fake_evaluate(
+        blueprint_arg,
+        config_arg,
+        *,
+        price_by_good,
+        raw_material_goods,
+        script_values,
+        global_unlock_age_by_method,
+        global_unlock_age_by_building,
+        food_cost_context,
+    ):
+        if blueprint_arg == other:
+            return _evaluation(
+                tag="other",
+                building="other_building",
+                methods=(
+                    _evaluated_method(
+                        "other_method",
+                        None,
+                        building="other_building",
+                        building_category="infrastructure_category",
+                        employment_size=1.0,
+                        building_cost_gold=100.0,
+                        input_gold=1.0,
+                        building_modifiers=(
+                            EvaluatedBuildingModifier(
+                                name="local_market_access",
+                                amount=0.02,
+                                per_building_gold=0.0002,
+                                per_maintenance_gold=0.02,
+                                per_1k=0.02,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        return _evaluation(
+            methods=(
+                _evaluated_method(
+                    "test_method",
+                    None,
+                    building_category="infrastructure_category",
+                    employment_size=2.0,
+                    building_cost_gold=300.0,
+                    input_gold=2.0,
+                    building_modifiers=(
+                        EvaluatedBuildingModifier(
+                            name="local_market_access",
+                            amount=0.015,
+                            per_building_gold=0.00005,
+                            per_maintenance_gold=0.0075,
+                            per_1k=0.0075,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    monkeypatch.setattr(workflow, "evaluate_building_blueprint_data", fake_evaluate)
+
+    result = evaluate_blueprint_ratios(config, building="pp_test_ratios")
+
+    assert result.startswith("building")
+    assert "modifier ratios" not in result
+    assert "building       value  build  maint  pop" in result
+    assert "test_building  0.015  300    2      2" in result
+    assert "modifier" in result
+    assert "building       tag   method" not in result
+    assert "test_building" in result
+    assert "local_market_access" in result
+    assert "0.00005" in result
+    assert "other_building" not in result
+    assert blueprint.name not in result
 
 
 def test_population_capacity_render_calls_adapter(tmp_path: Path, monkeypatch) -> None:

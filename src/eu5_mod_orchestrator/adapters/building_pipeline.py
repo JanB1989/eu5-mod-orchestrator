@@ -49,7 +49,7 @@ def render_building_blueprint(
     target_root = config.mod_root if mod_root is None else mod_root
 
     for text in bundle.texts:
-        output_path = _text_output_path(target_root, config.building_outputs, text.kind, bundle.tag, bundle.key)
+        output_path = _text_output_path(target_root, config.building_outputs, text.kind, bundle.output_tag, bundle.key)
         result.planned.append(output_path)
         if not dry_run:
             wrote_text = _write_managed_text(
@@ -84,6 +84,7 @@ def evaluate_building_blueprint(
     script_values: dict[str, float],
     global_unlock_age_by_method: dict[str, str],
     global_unlock_age_by_building: dict[str, str],
+    food_cost_context=None,
 ) -> str:
     from eu5_building_pipeline.evaluation import format_evaluation
 
@@ -96,6 +97,7 @@ def evaluate_building_blueprint(
             script_values=script_values,
             global_unlock_age_by_method=global_unlock_age_by_method,
             global_unlock_age_by_building=global_unlock_age_by_building,
+            food_cost_context=food_cost_context,
         )
     )
 
@@ -109,6 +111,7 @@ def evaluate_building_blueprint_data(
     script_values: dict[str, float],
     global_unlock_age_by_method: dict[str, str],
     global_unlock_age_by_building: dict[str, str],
+    food_cost_context=None,
 ):
     from eu5_building_pipeline.evaluation import evaluate_template_file
 
@@ -119,6 +122,7 @@ def evaluate_building_blueprint_data(
         global_unlock_age_by_method=global_unlock_age_by_method,
         global_unlock_age_by_building=global_unlock_age_by_building,
         global_config=_pipeline_evaluation_config(config, script_values),
+        food_cost_context=food_cost_context,
     )
 
 
@@ -141,7 +145,7 @@ def plan_building_text_outputs(
     bundle = render_template(blueprint_path)
     target_root = config.mod_root if mod_root is None else mod_root
     return [
-        _text_output_path(target_root, config.building_outputs, text.kind, bundle.tag, bundle.key)
+        _text_output_path(target_root, config.building_outputs, text.kind, bundle.output_tag, bundle.key)
         for text in bundle.texts
     ]
 

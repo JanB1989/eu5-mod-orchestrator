@@ -47,8 +47,18 @@ def export_parser_facts(
     data.goods.write_parquet(data_dir / "goods.parquet")
     data.goods_summary.write_parquet(data_dir / "goods_summary.parquet")
     data.advancements.write_parquet(data_dir / "advancements.parquet")
+    data.ages.write_parquet(data_dir / "ages.parquet")
+    data.pop_types.write_parquet(data_dir / "pop_types.parquet")
     data.buildings.write_parquet(data_dir / "buildings.parquet")
     data.production_methods.write_parquet(data_dir / "production_methods.parquet")
+    data.defines.write_parquet(data_dir / "defines.parquet")
+    data.food_price_scenarios.write_parquet(data_dir / "food_price_scenarios.parquet")
+    data.good_output_modifier_scenarios.write_parquet(data_dir / "good_output_modifier_scenarios.parquet")
+    data.fixed_good_prices.write_parquet(data_dir / "fixed_good_prices.parquet")
+    data.pop_food_costs.write_parquet(data_dir / "pop_food_costs.parquet")
+    data.unemployed_peasant_food_balance.write_parquet(data_dir / "unemployed_peasant_food_balance.parquet")
+    data.building_worker_food_costs.write_parquet(data_dir / "building_worker_food_costs.parquet")
+    data.production_method_food_costs.write_parquet(data_dir / "production_method_food_costs.parquet")
     data.goods_flow_nodes.write_parquet(data_dir / "goods_flow_nodes.parquet")
     data.goods_flow_edges.write_parquet(data_dir / "goods_flow_edges.parquet")
     explorer_path = write_goods_flow_explorer_html(
@@ -90,6 +100,25 @@ def load_raw_material_goods(
         kwargs["load_order_path"] = load_order_path
     goods_data = load_goods_data(**kwargs)
     return raw_material_goods_from_rows(goods_data.goods.to_dicts())
+
+
+def load_food_cost_context(
+    *,
+    profile: str,
+    load_order_path: Path | None,
+):
+    from eu5_building_pipeline.evaluation import FoodCostContext
+    from eu5gameparser.domain.food_economics import load_food_economics_data
+
+    kwargs = {"profile": profile}
+    if load_order_path is not None:
+        kwargs["load_order_path"] = load_order_path
+    food_data = load_food_economics_data(**kwargs)
+    return FoodCostContext.from_parser_rows(
+        pop_food_cost_rows=food_data.pop_food_costs.to_dicts(),
+        good_output_modifier_rows=food_data.good_output_modifier_scenarios.to_dicts(),
+        fixed_good_price_rows=food_data.fixed_good_prices.to_dicts(),
+    )
 
 
 def raw_material_goods_from_rows(rows: list[dict]) -> set[str]:

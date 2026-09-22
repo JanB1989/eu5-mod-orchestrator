@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 import pytest
 
@@ -69,6 +69,25 @@ production_methods:
     assert validate_blueprint_file(blueprint)["version"] == 2
 
 
+def test_validate_blueprint_file_rejects_unsafe_output_tag(tmp_path: Path) -> None:
+    blueprint = tmp_path / "test_building.yml"
+    blueprint.write_text(
+        """
+version: 2
+tag: test
+output_tag: Bad-Tag
+building:
+  key: test_building
+  body: |
+    is_foreign = no
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BlueprintError, match="output_tag"):
+        validate_blueprint_file(blueprint)
+
+
 def test_accepted_blueprint_files_searches_recursively(tmp_path: Path) -> None:
     nested = tmp_path / "buildings"
     nested.mkdir()
@@ -78,3 +97,49 @@ def test_accepted_blueprint_files_searches_recursively(tmp_path: Path) -> None:
     from eu5_mod_orchestrator.blueprints import accepted_blueprint_files
 
     assert accepted_blueprint_files(tmp_path) == [blueprint]
+
+
+def test_enabled_manifest_entries_supports_path_toggles() -> None:
+    from eu5_mod_orchestrator.blueprints import declared_manifest_entries, enabled_manifest_entries
+
+    mapping = {
+        "buildings/aqueduct_system.yml": True,
+        "buildings/amber_collector.yml": False,
+        "buildings/alum_quarry.yml": True,
+    }
+    assert enabled_manifest_entries(mapping) == [
+        "buildings/aqueduct_system.yml",
+        "buildings/alum_quarry.yml",
+    ]
+    assert declared_manifest_entries(mapping) == [
+        "buildings/aqueduct_system.yml",
+        "buildings/amber_collector.yml",
+        "buildings/alum_quarry.yml",
+    ]
+    assert enabled_manifest_entries(
+        [
+            "buildings/aqueduct_system.yml",
+            {"buildings/amber_collector.yml": False},
+            {"buildings/alum_quarry.yml": True},
+        ]
+    ) == [
+        "buildings/aqueduct_system.yml",
+        "buildings/alum_quarry.yml",
+    ]
+
+
+def test_manifest_blueprint_files_honors_disabled_toggles(tmp_path: Path) -> None:
+    from eu5_mod_orchestrator.blueprints import manifest_blueprint_files
+
+    accepted = tmp_path / "accepted"
+    buildings = accepted / "buildings"
+    buildings.mkdir(parents=True)
+    (buildings / "on.yml").write_text("tag: on\n", encoding="utf-8")
+    (buildings / "off.yml").write_text("tag: off\n", encoding="utf-8")
+    manifest = tmp_path / "buildings.manifest.yml"
+    manifest.write_text(
+        "enabled:\n  buildings/on.yml: true\n  buildings/off.yml: false\n",
+        encoding="utf-8",
+    )
+
+    assert manifest_blueprint_files(accepted, manifest) == [(buildings / "on.yml").resolve()]

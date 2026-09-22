@@ -7,6 +7,7 @@ from eu5_mod_orchestrator.adapters.parser import (
     export_savegame,
     global_building_unlock_ages_from_rows,
     global_unlock_ages_from_rows,
+    load_food_cost_context,
     load_script_values,
     raw_material_goods_from_rows,
     script_values_from_text,
@@ -24,10 +25,20 @@ class FakeTable:
 def test_export_parser_facts_writes_tables_and_explorer(tmp_path: Path, monkeypatch) -> None:
     data = SimpleNamespace(
         advancements=FakeTable("advancements"),
+        pop_types=FakeTable("pop_types"),
         goods=FakeTable("goods"),
         goods_summary=FakeTable("goods_summary"),
+        ages=FakeTable("ages"),
         buildings=FakeTable("buildings"),
         production_methods=FakeTable("production_methods"),
+        defines=FakeTable("defines"),
+        food_price_scenarios=FakeTable("food_price_scenarios"),
+        good_output_modifier_scenarios=FakeTable("good_output_modifier_scenarios"),
+        fixed_good_prices=FakeTable("fixed_good_prices"),
+        pop_food_costs=FakeTable("pop_food_costs"),
+        unemployed_peasant_food_balance=FakeTable("unemployed_peasant_food_balance"),
+        building_worker_food_costs=FakeTable("building_worker_food_costs"),
+        production_method_food_costs=FakeTable("production_method_food_costs"),
         goods_flow_nodes=FakeTable("goods_flow_nodes"),
         goods_flow_edges=FakeTable("goods_flow_edges"),
     )
@@ -68,10 +79,20 @@ def test_export_parser_facts_writes_tables_and_explorer(tmp_path: Path, monkeypa
 
     for name in (
         "advancements",
+        "pop_types",
         "goods",
         "goods_summary",
+        "ages",
         "buildings",
         "production_methods",
+        "defines",
+        "food_price_scenarios",
+        "good_output_modifier_scenarios",
+        "fixed_good_prices",
+        "pop_food_costs",
+        "unemployed_peasant_food_balance",
+        "building_worker_food_costs",
+        "production_method_food_costs",
         "goods_flow_nodes",
         "goods_flow_edges",
     ):
@@ -81,6 +102,87 @@ def test_export_parser_facts_writes_tables_and_explorer(tmp_path: Path, monkeypa
     assert calls["explorer"]["eu5_data"] is data
     assert str(data_dir) in result
     assert str(graph_dir / "goods_flow_explorer.html") in result
+
+
+def test_load_food_cost_context_uses_parser_pop_food_costs(tmp_path: Path, monkeypatch) -> None:
+    class FakeRows:
+        def __init__(self, rows) -> None:
+            self.rows = rows
+
+        def to_dicts(self):
+            return self.rows
+
+    pop_food_costs = FakeRows(
+        [
+            {
+                "pop_type": "laborers",
+                "scenario": "cheap_50",
+                "food_consumption_cost_gold": 0.1,
+            },
+            {
+                "pop_type": "laborers",
+                "scenario": "base_100",
+                "food_consumption_cost_gold": 0.2,
+            },
+            {
+                "pop_type": "laborers",
+                "scenario": "expensive_150",
+                "food_consumption_cost_gold": 0.3,
+            },
+        ]
+    )
+    output_modifiers = FakeRows(
+        [
+            {
+                "good": "food_revenue",
+                "scenario": "base_100",
+                "output_modifier": 0.0,
+                "output_multiplier": 1.0,
+            }
+        ]
+    )
+    fixed_prices = FakeRows(
+        [
+            {
+                "good": "food_revenue",
+                "age": "age_1_traditions",
+                "default_market_price": 1.2,
+                "price_stability": 0.1,
+                "fixed_price": 0.12,
+            }
+        ]
+    )
+    calls = {}
+
+    def fake_load_food_economics_data(**kwargs):
+        calls["load"] = kwargs
+        return SimpleNamespace(
+            pop_food_costs=pop_food_costs,
+            good_output_modifier_scenarios=output_modifiers,
+            fixed_good_prices=fixed_prices,
+        )
+
+    eu5gameparser = ModuleType("eu5gameparser")
+    domain = ModuleType("eu5gameparser.domain")
+    food_economics = ModuleType("eu5gameparser.domain.food_economics")
+    food_economics.load_food_economics_data = fake_load_food_economics_data
+
+    monkeypatch.setitem(sys.modules, "eu5gameparser", eu5gameparser)
+    monkeypatch.setitem(sys.modules, "eu5gameparser.domain", domain)
+    monkeypatch.setitem(sys.modules, "eu5gameparser.domain.food_economics", food_economics)
+
+    context = load_food_cost_context(
+        profile="foundations",
+        load_order_path=tmp_path / "foundations.load_order.toml",
+    )
+
+    assert calls["load"] == {
+        "profile": "foundations",
+        "load_order_path": tmp_path / "foundations.load_order.toml",
+    }
+    assert context.pop_cost("laborers", "base_100").food_consumption_cost_gold == 0.2
+    assert context.output_modifier("food_revenue", "base_100").output_multiplier == 1.0
+    assert context.fixed_price("food_revenue").fixed_price == 0.12
 
 
 def test_export_savegame_writes_tables_and_explorer(tmp_path: Path, monkeypatch) -> None:

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 import re
@@ -27,6 +27,14 @@ def validate_blueprint(raw: Any, *, source: Path | str = "<memory>") -> None:
     tag = _string(raw, "tag", "template", source)
     if not SAFE_TAG.fullmatch(tag):
         raise BlueprintError(f"{source}: template.tag must contain only lowercase letters, numbers, and underscores.")
+    output_tag = raw.get("output_tag")
+    if output_tag is not None:
+        if not isinstance(output_tag, str) or not output_tag.strip():
+            raise BlueprintError(f"{source}: template.output_tag must be a non-empty string.")
+        if not SAFE_TAG.fullmatch(output_tag):
+            raise BlueprintError(
+                f"{source}: template.output_tag must contain only lowercase letters, numbers, and underscores."
+            )
     if not path_stem_starts_with_tag(source, tag):
         raise BlueprintError(f"{source}: blueprint filename must start with tag {tag!r}.")
     version = raw.get("version", 1)
@@ -104,6 +112,70 @@ def accepted_blueprint_files(directory: Path) -> list[Path]:
     return sorted([*directory.rglob("*.yml"), *directory.rglob("*.yaml")])
 
 
+def _iter_manifest_entry_flags(
+    enabled: Any,
+    *,
+    source: Path | str = "<memory>",
+) -> list[tuple[str, bool]]:
+    """Normalize buildings-manifest ``enabled`` into ``(path, is_enabled)`` pairs."""
+    if enabled is None:
+        return []
+    if isinstance(enabled, list):
+        entries: list[tuple[str, bool]] = []
+        for index, item in enumerate(enabled):
+            if isinstance(item, str):
+                path = item.strip()
+                if not path:
+                    raise BlueprintError(f"{source}: enabled[{index}] must be a non-empty path.")
+                entries.append((path, True))
+                continue
+            if isinstance(item, dict) and len(item) == 1:
+                path_raw, flag = next(iter(item.items()))
+                if not isinstance(path_raw, str) or not path_raw.strip():
+                    raise BlueprintError(
+                        f"{source}: enabled[{index}] toggle key must be a non-empty path."
+                    )
+                if not isinstance(flag, bool):
+                    raise BlueprintError(
+                        f"{source}: enabled[{index}] toggle for {path_raw!r} must be true or false."
+                    )
+                entries.append((path_raw.strip(), flag))
+                continue
+            raise BlueprintError(
+                f"{source}: enabled[{index}] must be a path string or {{path: true|false}}."
+            )
+        return entries
+    if isinstance(enabled, dict):
+        entries = []
+        for path_raw, flag in enabled.items():
+            if not isinstance(path_raw, str) or not path_raw.strip():
+                raise BlueprintError(f"{source}: enabled keys must be non-empty blueprint paths.")
+            if not isinstance(flag, bool):
+                raise BlueprintError(
+                    f"{source}: enabled[{path_raw!r}] must be true or false, got {flag!r}."
+                )
+            entries.append((path_raw.strip(), flag))
+        return entries
+    raise BlueprintError(
+        f"{source}: enabled must be a list of paths or a mapping of path -> true/false."
+    )
+
+
+def declared_manifest_entries(enabled: Any, *, source: Path | str = "<memory>") -> list[str]:
+    """Return every relative blueprint path declared in a buildings manifest."""
+    return [path for path, _flag in _iter_manifest_entry_flags(enabled, source=source)]
+
+
+def enabled_manifest_entries(enabled: Any, *, source: Path | str = "<memory>") -> list[str]:
+    """Return relative blueprint paths marked enabled in a buildings manifest.
+
+    Accepts either:
+    - a list of relative paths (legacy; every entry is treated as enabled)
+    - a mapping of relative path -> bool (only ``true`` entries are enabled)
+    """
+    return [path for path, flag in _iter_manifest_entry_flags(enabled, source=source) if flag]
+
+
 def manifest_blueprint_files(directory: Path, manifest_path: Path | None) -> list[Path]:
     if manifest_path is None or not manifest_path.exists():
         return accepted_blueprint_files(directory)
@@ -111,10 +183,10 @@ def manifest_blueprint_files(directory: Path, manifest_path: Path | None) -> lis
         raw = yaml.safe_load(stream)
     if not isinstance(raw, dict):
         raise BlueprintError(f"{manifest_path}: manifest root must be a mapping.")
-    enabled = raw.get("enabled", [])
-    if not isinstance(enabled, list) or not all(isinstance(item, str) for item in enabled):
-        raise BlueprintError(f"{manifest_path}: enabled must be a list of relative blueprint paths.")
-    return [(directory / item).resolve() for item in enabled]
+    return [
+        (directory / item).resolve()
+        for item in enabled_manifest_entries(raw.get("enabled", []), source=manifest_path)
+    ]
 
 
 def path_stem_starts_with_tag(source: Path | str, tag: str) -> bool:

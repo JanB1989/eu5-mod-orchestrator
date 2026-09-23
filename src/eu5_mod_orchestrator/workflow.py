@@ -241,10 +241,13 @@ def evaluate_blueprints(
         if not blueprints:
             return f"no accepted blueprints matched {building!r}"
     try:
-        price_by_good = load_balance_prices(
-            profile=config.profile,
-            load_order_path=config.load_order_path,
-        )
+        price_by_good = {
+            **load_balance_prices(
+                profile=config.profile,
+                load_order_path=config.load_order_path,
+            ),
+            **config.blueprint_evaluation.price_overrides,
+        }
         global_unlock_age_by_method = load_global_unlock_ages(
             profile=config.profile,
             load_order_path=config.load_order_path,
@@ -323,10 +326,13 @@ def evaluate_blueprint_good(
     if not blueprints:
         return f"no accepted blueprints found in {config.accepted_blueprints_dir}"
     try:
-        price_by_good = load_balance_prices(
-            profile=config.profile,
-            load_order_path=config.load_order_path,
-        )
+        price_by_good = {
+            **load_balance_prices(
+                profile=config.profile,
+                load_order_path=config.load_order_path,
+            ),
+            **config.blueprint_evaluation.price_overrides,
+        }
         global_unlock_age_by_method = load_global_unlock_ages(
             profile=config.profile,
             load_order_path=config.load_order_path,
@@ -396,10 +402,13 @@ def evaluate_blueprint_ratios(
         if not blueprints:
             return f"no accepted blueprints matched {building!r}"
     try:
-        price_by_good = load_balance_prices(
-            profile=config.profile,
-            load_order_path=config.load_order_path,
-        )
+        price_by_good = {
+            **load_balance_prices(
+                profile=config.profile,
+                load_order_path=config.load_order_path,
+            ),
+            **config.blueprint_evaluation.price_overrides,
+        }
         global_unlock_age_by_method = load_global_unlock_ages(
             profile=config.profile,
             load_order_path=config.load_order_path,

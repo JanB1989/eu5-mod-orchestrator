@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,10 @@ class BlueprintEvaluationConfig:
     amortization_months_max: float | None
     employment_size_constants: dict[str, float]
     modifier_categories: dict[str, ModifierCategoryEvaluationConfig]
+    # good -> balance price used instead of the parsed default price (e.g. goods that sit at their price floor)
+    price_overrides: dict[str, float] = field(default_factory=dict)
+    # goods a base method may pay and still be judged as a base method (base output band, no margin/throughput rules)
+    base_method_input_goods: tuple[str, ...] = ()
 
     @property
     def roi_cycles_max(self) -> float | None:
@@ -85,6 +89,7 @@ class BlueprintEvaluationConfig:
                 category: category_config.to_pipeline_config()
                 for category, category_config in self.modifier_categories.items()
             },
+            "base_method_input_goods": list(self.base_method_input_goods),
         }
 
 
@@ -225,6 +230,10 @@ def _blueprint_evaluation_config(value: Any) -> BlueprintEvaluationConfig:
         ).items()
     }
     modifier_categories = _modifier_category_evaluation_configs(raw.get("modifier_categories", {}))
+    price_overrides = {
+        str(key): _float(value, f"blueprint_evaluation.price_overrides.{key}")
+        for key, value in _mapping(raw.get("price_overrides", {}), "blueprint_evaluation.price_overrides").items()
+    }
     return BlueprintEvaluationConfig(
         raw_input_efficiency_per_good=_optional_float(raw, "raw_input_efficiency_per_good", 0.05),
         profit_percent_min=_optional_float(raw, "profit_percent_min", -0.30),
@@ -248,6 +257,10 @@ def _blueprint_evaluation_config(value: Any) -> BlueprintEvaluationConfig:
         ),
         employment_size_constants=constants,
         modifier_categories=modifier_categories,
+        price_overrides=price_overrides,
+        base_method_input_goods=_modifier_names(
+            raw.get("base_method_input_goods", []), "blueprint_evaluation.base_method_input_goods"
+        ),
     )
 
 

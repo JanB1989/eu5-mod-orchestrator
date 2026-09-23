@@ -187,6 +187,31 @@ roi_cycles_max = 80
     assert evaluation.amortization_months_max == 80
     assert evaluation.to_pipeline_config()["amortization_months_max"] == 80
     assert evaluation.to_pipeline_config()["roi_cycles_max"] == 80
+    assert evaluation.price_overrides == {}
+
+
+def test_load_project_config_accepts_blueprint_price_overrides(tmp_path: Path) -> None:
+    config_path = tmp_path / "constructor.toml"
+    config_path.write_text(
+        """
+[project]
+name = "Constructor"
+mod_root = "mod/Constructor"
+
+[blueprint_evaluation]
+base_method_input_goods = ["manual_labor_cost"]
+
+[blueprint_evaluation.price_overrides]
+manual_labor_cost = 1
+""".strip(),
+        encoding="utf-8",
+    )
+
+    evaluation = load_project_config(config_path).blueprint_evaluation
+
+    assert evaluation.price_overrides == {"manual_labor_cost": 1.0}
+    assert evaluation.base_method_input_goods == ("manual_labor_cost",)
+    assert evaluation.to_pipeline_config()["base_method_input_goods"] == ["manual_labor_cost"]
 
 
 def test_load_project_config_accepts_explicit_artifact_layout(tmp_path: Path) -> None:

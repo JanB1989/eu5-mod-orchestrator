@@ -6,6 +6,9 @@ from typing import Any
 
 import yaml
 
+# libyaml loads the same data as the pure-Python loader, several times faster.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 
 class BlueprintError(ValueError):
     """Raised when a blueprint cannot be consumed by the rendering pipeline."""
@@ -16,7 +19,7 @@ SAFE_TAG = re.compile(r"^[a-z0-9_]+$")
 
 def validate_blueprint_file(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as stream:
-        raw = yaml.safe_load(stream)
+        raw = yaml.load(stream, Loader=_YAML_LOADER)
     validate_blueprint(raw, source=path)
     return raw
 
@@ -180,7 +183,7 @@ def manifest_blueprint_files(directory: Path, manifest_path: Path | None) -> lis
     if manifest_path is None or not manifest_path.exists():
         return accepted_blueprint_files(directory)
     with manifest_path.open("r", encoding="utf-8") as stream:
-        raw = yaml.safe_load(stream)
+        raw = yaml.load(stream, Loader=_YAML_LOADER)
     if not isinstance(raw, dict):
         raise BlueprintError(f"{manifest_path}: manifest root must be a mapping.")
     return [

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import filecmp
+import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from eu5_mod_orchestrator.config import OrchestratorConfig
+
+# Deploy targets usually sit on a Windows drive mounted into WSL, where every file-system call is a
+# slow round trip. The target is therefore walked once and its files are stat'ed and copied in parallel.
+_IO_WORKERS = 32
 
 
 class DeployError(ValueError):
@@ -68,61 +74,56 @@ def deploy(
         raise DeployError(f"deploy source must be a directory: {source}")
 
     result = DeployResult(source=source, target=target, dry_run=dry_run)
-    source_dirs = _source_dirs(source)
-    source_files = _source_files(source)
+    source_dirs, source_files = _walk(source)
+    target_dirs, target_files = _walk(target) if target.is_dir() else (set(), set())
     if not dry_run:
         target.mkdir(parents=True, exist_ok=True)
 
     if clean:
         _validate_clean_target(config, target)
-        for stale in _stale_targets(source_files, source, target):
-            result.planned_deletes.append(stale)
+        for stale in sorted(target_files - source_files):
+            result.planned_deletes.append(target / stale)
             if not dry_run:
-                stale.unlink()
-                result.deleted.append(stale)
-
-    for source_dir in source_dirs:
-        target_dir = target / source_dir.relative_to(source)
-        if not dry_run:
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-    for source_file in source_files:
-        target_file = target / source_file.relative_to(source)
-        if not force and _files_match(source_file, target_file):
-            result.skipped.append(target_file)
-            continue
-        result.planned_copies.append(target_file)
-        if dry_run:
-            continue
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_file, target_file)
-        result.copied.append(target_file)
+                (target / stale).unlink()
+                result.deleted.append(target / stale)
 
     if not dry_run:
-        _remove_empty_dirs(target, expected_dirs={target / d.relative_to(source) for d in source_dirs})
+        for relative in sorted(source_dirs - target_dirs):
+            (target / relative).mkdir(parents=True, exist_ok=True)
+
+    ordered = sorted(source_files)
+    existing = [relative for relative in ordered if relative in target_files]
+    with ThreadPoolExecutor(_IO_WORKERS) as pool:
+        target_stats = dict(zip(existing, pool.map(lambda rel: (target / rel).stat(), existing)))
+        unchanged = set()
+        if not force:
+            matches = pool.map(lambda rel: _files_match(source / rel, target / rel, target_stats[rel]), existing)
+            unchanged = {relative for relative, match in zip(existing, matches) if match}
+        copies = [relative for relative in ordered if relative not in unchanged]
+        result.skipped = [target / relative for relative in ordered if relative in unchanged]
+        result.planned_copies = [target / relative for relative in copies]
+        if not dry_run:
+            list(pool.map(lambda rel: shutil.copy2(source / rel, target / rel), copies))
+            result.copied = list(result.planned_copies)
+
+    if not dry_run:
+        _remove_empty_dirs(target, target_dirs - source_dirs)
     return result
 
 
-def _source_dirs(source: Path) -> list[Path]:
-    return sorted(path for path in source.rglob("*") if path.is_dir())
+def _walk(root: Path) -> tuple[set[Path], set[Path]]:
+    """Directories and files under ``root``, relative to it, from one directory listing pass."""
+    dirs: set[Path] = set()
+    files: set[Path] = set()
+    for current, dir_names, file_names in os.walk(root):
+        relative = Path(current).relative_to(root)
+        dirs.update(relative / name for name in dir_names)
+        files.update(relative / name for name in file_names)
+    return dirs, files
 
 
-def _source_files(source: Path) -> list[Path]:
-    return sorted(path for path in source.rglob("*") if path.is_file())
-
-
-def _stale_targets(source_files: list[Path], source: Path, target: Path) -> list[Path]:
-    if not target.exists():
-        return []
-    expected = {target / source_file.relative_to(source) for source_file in source_files}
-    return sorted(path for path in target.rglob("*") if path.is_file() and path not in expected)
-
-
-def _files_match(source: Path, target: Path) -> bool:
-    if not target.is_file():
-        return False
+def _files_match(source: Path, target: Path, target_stat: os.stat_result) -> bool:
     source_stat = source.stat()
-    target_stat = target.stat()
     if source_stat.st_size != target_stat.st_size:
         return False
     if int(source_stat.st_mtime) == int(target_stat.st_mtime):
@@ -151,14 +152,10 @@ def _validate_clean_target(config: OrchestratorConfig, target: Path) -> None:
         raise DeployError(f"refusing to clean shallow deploy target: {target}")
 
 
-def _remove_empty_dirs(target: Path, *, expected_dirs: set[Path] | None = None) -> None:
-    if not target.exists():
-        return
-    keep = expected_dirs or set()
-    for path in sorted((path for path in target.rglob("*") if path.is_dir()), reverse=True):
-        if path in keep:
-            continue
+def _remove_empty_dirs(target: Path, candidates: set[Path]) -> None:
+    """Remove target directories the source no longer has, deepest first, if they are empty."""
+    for relative in sorted(candidates, key=lambda path: len(path.parts), reverse=True):
         try:
-            path.rmdir()
+            (target / relative).rmdir()
         except OSError:
             pass

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import tempfile
-import tomllib
 
 
 def compare_mod_building_state(
@@ -132,8 +131,7 @@ def load_script_values(
 ) -> dict[str, float]:
     if load_order_path is None:
         return {}
-    raw = tomllib.loads(load_order_path.read_text(encoding="utf-8"))
-    layer_roots = _profile_layer_roots(raw, profile, load_order_path.parent)
+    layer_roots = _profile_layer_roots(load_order_path, profile)
     values: dict[str, float] = {}
     for root in layer_roots:
         for path in _script_value_files(root):
@@ -332,7 +330,9 @@ def _compare_rows(kind: str, reference: list[dict], candidate: list[dict], *, ke
 
 
 def _temporary_load_order(load_order_path: Path, mod_id: str, mod_root: Path) -> Path:
-    raw = tomllib.loads(load_order_path.read_text(encoding="utf-8"))
+    from eu5gameparser.load_order import read_load_order
+
+    raw = read_load_order(load_order_path)
     for mod in raw.get("mods", []):
         if str(mod.get("id")) == mod_id:
             mod["root"] = str(mod_root)
@@ -345,25 +345,17 @@ def _temporary_load_order(load_order_path: Path, mod_id: str, mod_root: Path) ->
     return Path(handle.name)
 
 
-def _profile_layer_roots(raw: dict, profile: str, base_dir: Path) -> list[Path]:
-    paths = raw.get("paths", {})
-    vanilla_root_raw = paths.get("vanilla_root")
-    mods = {str(mod.get("id")): mod for mod in raw.get("mods", [])}
-    profiles = raw.get("profiles", {})
-    layers = profiles.get(profile)
-    if layers is None:
-        layers = ["vanilla"]
+def _profile_layer_roots(load_order_path: Path, profile: str) -> list[Path]:
+    from eu5gameparser.load_order import LoadOrderConfig
+
+    config = LoadOrderConfig.load(load_order_path)
+    layers = config.profiles.get(profile, ("vanilla",))
     roots: list[Path] = []
-    for layer in layers:
-        layer_id = str(layer)
+    for layer_id in layers:
         if layer_id == "vanilla":
-            if vanilla_root_raw:
-                roots.append(_load_order_path(base_dir, str(vanilla_root_raw)) / "game")
-            continue
-        mod = mods.get(layer_id)
-        if mod is None:
-            continue
-        roots.append(_load_order_path(base_dir, str(mod["root"])))
+            roots.append(config.vanilla_root / "game")
+        elif layer_id in config.mods:
+            roots.append(config.mods[layer_id].root)
     return roots
 
 
@@ -377,13 +369,6 @@ def _script_value_files(root: Path) -> list[Path]:
         if directory.exists():
             files.extend(sorted(directory.glob("*.txt")))
     return files
-
-
-def _load_order_path(base_dir: Path, raw: str) -> Path:
-    path = Path(raw)
-    if path.is_absolute():
-        return path
-    return (base_dir / path).resolve()
 
 
 def _toml_load_order(raw: dict) -> str:

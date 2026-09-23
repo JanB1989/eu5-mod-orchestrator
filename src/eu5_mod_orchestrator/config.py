@@ -22,23 +22,6 @@ class BuildingOutputLayout:
 
 
 @dataclass(frozen=True)
-class LabelingConfig:
-    enabled: bool
-    config_path: Path
-    modifier_prefix: str
-    generated_label: str
-    managed_write_mode: str
-
-
-@dataclass(frozen=True)
-class PopulationCapacityConfig:
-    enabled: bool
-    config_path: Path
-    generated_label: str
-    managed_write_mode: str
-
-
-@dataclass(frozen=True)
 class ModifierCategoryEvaluationConfig:
     modifiers: tuple[str, ...]
 
@@ -114,8 +97,6 @@ class OrchestratorConfig:
     load_order_path: Path | None
     profile: str
     building_outputs: BuildingOutputLayout
-    labeling: LabelingConfig | None
-    population_capacity: PopulationCapacityConfig | None
     blueprint_evaluation: BlueprintEvaluationConfig
     dependencies: dict[str, Path]
 
@@ -133,8 +114,6 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
     parser = _mapping(raw.get("parser", {}), "parser")
     building_outputs = _mapping(raw.get("building_outputs", {}), "building_outputs")
     building_blueprints = _mapping(raw.get("building_blueprints", {}), "building_blueprints")
-    labeling_raw = raw.get("labeling")
-    population_capacity_raw = raw.get("population_capacity")
     blueprint_evaluation_raw = raw.get("blueprint_evaluation")
     deps = _mapping(raw.get("dependencies", {}), "dependencies")
 
@@ -180,8 +159,6 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
     clean_paths = building_blueprints.get("clean_paths", [])
     if not isinstance(clean_paths, list) or not all(isinstance(item, str) for item in clean_paths):
         raise ConfigError("building_blueprints.clean_paths must be a list of strings.")
-    labeling = _labeling_config(root, labeling_raw)
-    population_capacity = _population_capacity_config(root, population_capacity_raw)
     blueprint_evaluation = _blueprint_evaluation_config(blueprint_evaluation_raw)
 
     return OrchestratorConfig(
@@ -204,8 +181,6 @@ def load_project_config(path: str | Path) -> OrchestratorConfig:
         load_order_path=load_order_path,
         profile=profile,
         building_outputs=layout,
-        labeling=labeling,
-        population_capacity=population_capacity,
         blueprint_evaluation=blueprint_evaluation,
         dependencies={key: _path(root, str(value)) for key, value in deps.items()},
     )
@@ -291,47 +266,6 @@ def _modifier_names(value: Any, name: str) -> tuple[str, ...]:
     raise ConfigError(f"{name} must be a list of modifier names.")
 
 
-def _labeling_config(root: Path, value: Any) -> LabelingConfig | None:
-    if value is None:
-        return None
-    raw = _mapping(value, "labeling")
-    enabled = _bool(raw.get("enabled", True))
-    config_raw = raw.get("config")
-    if not isinstance(config_raw, str) or not config_raw.strip():
-        raise ConfigError("labeling.config must be a non-empty string.")
-    managed_write_mode = str(raw.get("managed_write_mode", "mod_root")).strip() or "mod_root"
-    if managed_write_mode not in {"mod_root", "template_copy"}:
-        raise ConfigError("labeling.managed_write_mode must be 'mod_root' or 'template_copy'.")
-    return LabelingConfig(
-        enabled=enabled,
-        config_path=_path(root, config_raw),
-        modifier_prefix=str(raw.get("modifier_prefix", "pp")).strip() or "pp",
-        generated_label=str(raw.get("generated_label", "Prosper or Perish")).strip()
-        or "Prosper or Perish",
-        managed_write_mode=managed_write_mode,
-    )
-
-
-def _population_capacity_config(root: Path, value: Any) -> PopulationCapacityConfig | None:
-    if value is None:
-        return None
-    raw = _mapping(value, "population_capacity")
-    enabled = _bool(raw.get("enabled", True))
-    config_raw = raw.get("config")
-    if not isinstance(config_raw, str) or not config_raw.strip():
-        raise ConfigError("population_capacity.config must be a non-empty string.")
-    managed_write_mode = str(raw.get("managed_write_mode", "mod_root")).strip() or "mod_root"
-    if managed_write_mode != "mod_root":
-        raise ConfigError("population_capacity.managed_write_mode must be 'mod_root'.")
-    return PopulationCapacityConfig(
-        enabled=enabled,
-        config_path=_path(root, config_raw),
-        generated_label=str(raw.get("generated_label", "Prosper or Perish")).strip()
-        or "Prosper or Perish",
-        managed_write_mode=managed_write_mode,
-    )
-
-
 def _load_local_config(config_path: Path) -> dict[str, Any]:
     local_path = config_path.with_name(f"{config_path.stem}.local{config_path.suffix}")
     if not local_path.exists():
@@ -361,12 +295,6 @@ def _string(mapping: dict[str, Any], key: str, section: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{section}.{key} must be a non-empty string.")
     return value
-
-
-def _bool(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 def _float(value: Any, name: str) -> float:
